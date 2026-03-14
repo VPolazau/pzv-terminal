@@ -38,7 +38,7 @@ export async function writeMockCandles(params: {
     const closeTime = openTime + step;
 
     const open = lastClose;
-    const delta = (Math.random() - 0.5) * 200;
+    const delta = (Math.random() - 0.5) * 1200;
     const close = Math.max(1, open + delta);
 
     const high = Math.max(open, close) + Math.random() * 50;
