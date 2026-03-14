@@ -3,7 +3,8 @@ import { AppModule } from './app/app.module';
 import { getConfig } from '@pzv-terminal/core-config';
 import { createLogger } from '@pzv-terminal/core-logger';
 import type { Ticker } from '@pzv-terminal/shared-types';
-import { redisSetJson } from "@pzv-terminal/core-redis";
+import { connectRedis } from "@pzv-terminal/core-redis";
+import { writeMockCandles } from "./jobs/candles.job";
 
 async function bootstrap() {
   const config = getConfig();
@@ -11,23 +12,29 @@ async function bootstrap() {
 
   const app = await NestFactory.createApplicationContext(AppModule);
 
+  const redis = await connectRedis();
+
   logger.info('Worker started');
+
+  const symbol = "BTCUSDT";
+  const tf = "1m" as const;
+  const limit = 120;
+
+  // сразу записали при старте
+  await writeMockCandles({ redis, symbol, tf, limit });
+  logger.info({ symbol, tf, limit }, "Candles initialized");
 
   setInterval(() => {
     logger.debug('Worker heartbeat');
   }, 60_000);
 
+  // и обновляем раз в 10 секунд
   setInterval(async () => {
-    const t: Ticker = {
-      symbol: 'BTCUSDT',
-      price: 60000 + Math.round(Math.random() * 1000),
-      ts: Date.now(),
-      source: 'mock',
-    };
-
-    await redisSetJson(`market:ticker:${t.symbol}`, t);
-    logger.info({ t }, 'Ticker updated');
+    await writeMockCandles({ redis, symbol, tf, limit });
+    logger.info({ symbol, tf }, "Candles updated");
   }, 10_000);
+
+  setInterval(() => logger.debug("Worker heartbeat"), 60_000);
 }
 
 bootstrap();
