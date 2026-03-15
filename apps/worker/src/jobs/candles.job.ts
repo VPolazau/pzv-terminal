@@ -1,15 +1,21 @@
-import type { RedisClientType } from "redis";
-import type { Candle, Timeframe } from "@pzv-terminal/shared-types";
-import { setJson } from "@pzv-terminal/core-redis";
+import type { RedisClientType } from 'redis';
+import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
+import { setJson } from '@pzv-terminal/core-redis';
 
 function tfToMs(tf: Timeframe): number {
   switch (tf) {
-    case "1m": return 60_000;
-    case "5m": return 5 * 60_000;
-    case "15m": return 15 * 60_000;
-    case "1h": return 60 * 60_000;
-    case "4h": return 4 * 60 * 60_000;
-    case "1d": return 24 * 60 * 60_000;
+    case '1m':
+      return 60_000;
+    case '5m':
+      return 5 * 60_000;
+    case '15m':
+      return 15 * 60_000;
+    case '1h':
+      return 60 * 60_000;
+    case '4h':
+      return 4 * 60 * 60_000;
+    case '1d':
+      return 24 * 60 * 60_000;
   }
 }
 
@@ -55,7 +61,7 @@ export async function writeMockCandles(params: {
       low: Number(low.toFixed(2)),
       close: Number(close.toFixed(2)),
       volume: Number(volume.toFixed(3)),
-      source: "mock",
+      source: 'mock',
     };
 
     candles.push(c);

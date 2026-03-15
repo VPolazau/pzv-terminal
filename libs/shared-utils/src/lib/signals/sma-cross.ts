@@ -1,5 +1,5 @@
-import type { SmaCrossSignal } from "@pzv-terminal/shared-types";
-import { smaAt } from "../indicators/sma-at";
+import type { SmaCrossSignal } from '@pzv-terminal/shared-types';
+import { smaAt } from '../indicators/sma-at';
 
 export function smaCrossAt(params: {
   closes: number[];
@@ -18,7 +18,7 @@ export function smaCrossAt(params: {
   const prevFast = smaAt(closes, fast, index - 1);
   const prevSlow = smaAt(closes, slow, index - 1);
 
-  let signal: SmaCrossSignal = "none";
+  let signal: SmaCrossSignal = 'none';
 
   if (
     nowFast !== null &&
@@ -26,8 +26,8 @@ export function smaCrossAt(params: {
     prevFast !== null &&
     prevSlow !== null
   ) {
-    if (prevFast <= prevSlow && nowFast > nowSlow) signal = "bull_cross";
-    else if (prevFast >= prevSlow && nowFast < nowSlow) signal = "bear_cross";
+    if (prevFast <= prevSlow && nowFast > nowSlow) signal = 'bull_cross';
+    else if (prevFast >= prevSlow && nowFast < nowSlow) signal = 'bear_cross';
   }
 
   return {

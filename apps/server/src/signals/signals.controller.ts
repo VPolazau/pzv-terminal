@@ -1,18 +1,18 @@
-import { Controller, Get, Query } from "@nestjs/common";
-import type { Candle, Timeframe } from "@pzv-terminal/shared-types";
-import { connectRedis, getJson } from "@pzv-terminal/core-redis";
-import { smaAt } from "@pzv-terminal/shared-utils";
+import { Controller, Get, Query } from '@nestjs/common';
+import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
+import { connectRedis, getJson } from '@pzv-terminal/core-redis';
+import { smaAt } from '@pzv-terminal/shared-utils';
 
-type CrossSignal = "bull_cross" | "bear_cross" | "none";
+type CrossSignal = 'bull_cross' | 'bear_cross' | 'none';
 
-@Controller("signals")
+@Controller('signals')
 export class SignalsController {
-  @Get("sma-cross")
+  @Get('sma-cross')
   async smaCross(
-    @Query("symbol") symbol = "BTCUSDT",
-    @Query("tf") tf: Timeframe = "1m",
-    @Query("fast") fastStr = "10",
-    @Query("slow") slowStr = "50"
+    @Query('symbol') symbol = 'BTCUSDT',
+    @Query('tf') tf: Timeframe = '1m',
+    @Query('fast') fastStr = '10',
+    @Query('slow') slowStr = '50',
   ) {
     const fast = Math.max(1, Math.min(200, Number(fastStr) || 10));
     const slow = Math.max(2, Math.min(500, Number(slowStr) || 50));
@@ -30,15 +30,15 @@ export class SignalsController {
     const prevFast = smaAt(closes, fast, prevIndex);
     const prevSlow = smaAt(closes, slow, prevIndex);
 
-    let signal: CrossSignal = "none";
+    let signal: CrossSignal = 'none';
     if (
       nowFast !== null &&
       nowSlow !== null &&
       prevFast !== null &&
       prevSlow !== null
     ) {
-      if (prevFast <= prevSlow && nowFast > nowSlow) signal = "bull_cross";
-      else if (prevFast >= prevSlow && nowFast < nowSlow) signal = "bear_cross";
+      if (prevFast <= prevSlow && nowFast > nowSlow) signal = 'bull_cross';
+      else if (prevFast >= prevSlow && nowFast < nowSlow) signal = 'bear_cross';
     }
 
     return {

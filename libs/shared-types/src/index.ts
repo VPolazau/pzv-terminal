@@ -1,2 +1,2 @@
 export * from './lib/shared-types';
-export * from "./lib/market";
+export * from './lib/market';

@@ -1,11 +1,11 @@
-import { createClient, type RedisClientType } from "redis";
+import { createClient, type RedisClientType } from 'redis';
 
 let client: RedisClientType | null = null;
 
 export function getRedisClient(): RedisClientType {
   if (client) return client;
 
-  const url = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379";
+  const url = process.env['REDIS_URL'] ?? 'redis://127.0.0.1:6379';
 
   client = createClient({
     url,
@@ -15,17 +15,17 @@ export function getRedisClient(): RedisClientType {
     },
   });
 
-  client.on("error", (err) => {
+  client.on('error', (err) => {
     // просто логируем, не падаем
-    console.error("Redis Client Error", err);
+    console.error('Redis Client Error', err);
   });
 
-  client.on("reconnecting", () => {
-    console.warn("Redis reconnecting...");
+  client.on('reconnecting', () => {
+    console.warn('Redis reconnecting...');
   });
 
-  client.on("ready", () => {
-    console.log("Redis ready");
+  client.on('ready', () => {
+    console.log('Redis ready');
   });
 
   return client;

@@ -1,4 +1,8 @@
-export function smaAt(values: number[], period: number, index: number): number | null {
+export function smaAt(
+  values: number[],
+  period: number,
+  index: number,
+): number | null {
   if (!Number.isFinite(period) || period <= 0) return null;
   if (index < period - 1) return null;
   if (index >= values.length) return null;

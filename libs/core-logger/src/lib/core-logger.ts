@@ -1,4 +1,4 @@
-import pino, { Logger, LoggerOptions } from "pino";
+import pino, { Logger, LoggerOptions } from 'pino';
 
 export type CreateLoggerOptions = {
   name?: string;
@@ -7,11 +7,11 @@ export type CreateLoggerOptions = {
 };
 
 export function createLogger(opts: CreateLoggerOptions = {}): Logger {
-  const level = opts.level ?? process.env['LOG_LEVEL'] ?? "info";
+  const level = opts.level ?? process.env['LOG_LEVEL'] ?? 'info';
   const pretty =
-    typeof opts.pretty === "boolean"
+    typeof opts.pretty === 'boolean'
       ? opts.pretty
-      : process.env['NODE_ENV'] !== "production";
+      : process.env['NODE_ENV'] !== 'production';
 
   const options: LoggerOptions = {
     name: opts.name,
@@ -24,13 +24,13 @@ export function createLogger(opts: CreateLoggerOptions = {}): Logger {
     return pino(
       options,
       pino.transport({
-        target: "pino-pretty",
+        target: 'pino-pretty',
         options: {
           colorize: true,
-          translateTime: "SYS:standard",
-          ignore: "pid,hostname",
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname',
         },
-      })
+      }),
     );
   }
 

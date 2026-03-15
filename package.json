@@ -16,6 +16,7 @@
     "prepare": "husky",
     "lint": "nx run-many -t lint --all",
     "lint:fix": "nx run-many -t lint --all --fix",
+    "format": "prettier . --write --ignore-unknown",
     "check": "nx affected -t lint,test,build",
     "test": "nx run-many -t test --all",
     "e2e:server": "nx run server-e2e:e2e",
@@ -29,10 +30,14 @@
     "redis:cli": "docker exec -it pzv-redis redis-cli"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx}": [
-      "pnpm exec eslint --fix"
+    "{apps,libs}/**/*.{ts,tsx,js,jsx}": [
+      "pnpm exec eslint --fix",
+      "pnpm exec prettier --write"
     ],
-    "*.{json,scss,css,md}": [
+    "{apps,libs,docs}/**/*.{json,scss,css,md}": [
+      "pnpm exec prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
       "pnpm exec prettier --write"
     ]
   },

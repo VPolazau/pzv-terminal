@@ -7,13 +7,13 @@ export type Ticker = {
   source: 'mock' | 'binance' | 'mexc' | 'bybit';
 };
 
-export type Timeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
 export type Candle = {
   symbol: Symbol;
   tf: Timeframe;
 
-  openTime: number;  // ms
+  openTime: number; // ms
   closeTime: number; // ms
 
   open: number;
@@ -22,18 +22,18 @@ export type Candle = {
   close: number;
 
   volume: number;
-  source: Ticker["source"];
+  source: Ticker['source'];
 };
 
-export type SmaCrossSignal = "bull_cross" | "bear_cross" | "none";
+export type SmaCrossSignal = 'bull_cross' | 'bear_cross' | 'none';
 
 export type SignalEvent = {
-  type: "sma_cross";
+  type: 'sma_cross';
   symbol: string;
   tf: Timeframe;
   fast: number;
   slow: number;
-  signal: Exclude<SmaCrossSignal, "none">;
+  signal: Exclude<SmaCrossSignal, 'none'>;
   ts: number;
   now: { fast: number; slow: number };
   prev: { fast: number; slow: number };
