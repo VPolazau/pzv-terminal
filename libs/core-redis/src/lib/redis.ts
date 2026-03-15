@@ -17,17 +17,14 @@ export function getRedisClient(): RedisClientType {
 
   client.on("error", (err) => {
     // просто логируем, не падаем
-    // eslint-disable-next-line no-console
     console.error("Redis Client Error", err);
   });
 
   client.on("reconnecting", () => {
-    // eslint-disable-next-line no-console
     console.warn("Redis reconnecting...");
   });
 
   client.on("ready", () => {
-    // eslint-disable-next-line no-console
     console.log("Redis ready");
   });
 
