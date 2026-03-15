@@ -24,3 +24,17 @@ export type Candle = {
   volume: number;
   source: Ticker["source"];
 };
+
+export type SmaCrossSignal = "bull_cross" | "bear_cross" | "none";
+
+export type SignalEvent = {
+  type: "sma_cross";
+  symbol: string;
+  tf: Timeframe;
+  fast: number;
+  slow: number;
+  signal: Exclude<SmaCrossSignal, "none">;
+  ts: number;
+  now: { fast: number; slow: number };
+  prev: { fast: number; slow: number };
+};

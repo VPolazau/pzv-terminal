@@ -2,7 +2,10 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app/app.module";
 import { getConfig } from "@pzv-terminal/core-config";
-import "dotenv/config";
+import dotenv from "dotenv";
+
+dotenv.config({ path: ".env.local" });
+dotenv.config({ path: ".env" });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
