@@ -13,13 +13,33 @@
     "build:server": "nx build server",
     "build:worker": "nx build worker",
     "build": "nx run-many -t build -p server worker",
+    "prepare": "husky",
     "lint": "nx run-many -t lint --all",
+    "lint:fix": "nx run-many -t lint --all --fix",
+    "format": "prettier . --write --ignore-unknown",
+    "check": "nx affected -t lint,test,build",
     "test": "nx run-many -t test --all",
     "e2e:server": "nx run server-e2e:e2e",
-    "e2e:worker": "nx run worker-e2e:e2e",
     "reset": "nx reset",
+    "reset-markets": "pnpm nx reset && docker exec -i pzv-redis redis-cli EVAL \"for _,k in ipairs(redis.call('KEYS', ARGV[1])) do redis.call('DEL', k) end return true\" 0 \"market:*\" && pnpm dev",
     "graph": "nx graph",
-    "projects": "nx show projects"
+    "projects": "nx show projects",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v && docker compose up -d",
+    "redis:cli": "docker exec -it pzv-redis redis-cli"
+  },
+  "lint-staged": {
+    "{apps,libs}/**/*.{ts,tsx,js,jsx}": [
+      "pnpm exec eslint --fix",
+      "pnpm exec prettier --write"
+    ],
+    "{apps,libs,docs}/**/*.{json,scss,css,md}": [
+      "pnpm exec prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "pnpm exec prettier --write"
+    ]
   },
   "private": true,
   "pnpm": {
@@ -51,10 +71,12 @@
     "@types/node": "20.19.9",
     "eslint": "^9.8.0",
     "eslint-config-prettier": "^10.0.0",
+    "husky": "^9.1.7",
     "jest": "^30.0.2",
     "jest-environment-node": "^30.0.2",
     "jest-util": "^30.0.2",
     "jsonc-eslint-parser": "^2.1.0",
+    "lint-staged": "^16.4.0",
     "nx": "22.5.0",
     "pino-pretty": "^13.1.3",
     "prettier": "~3.6.2",

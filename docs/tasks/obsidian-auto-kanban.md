@@ -10,7 +10,6 @@ where status = "planned"
 
 ```
 
-
 ## 🔵 In Progress
 
 ```dataview
@@ -23,9 +22,7 @@ where status = "in-progress"
 
 ```
 
-
 ## 🟢 Done
-
 
 ```dataview
 
@@ -36,5 +33,3 @@ from "tasks"
 where status = "done"
 
 ```
-
-

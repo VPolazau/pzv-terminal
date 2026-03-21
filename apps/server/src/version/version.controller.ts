@@ -1,13 +1,13 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get } from '@nestjs/common';
 
-@Controller("version")
+@Controller('version')
 export class VersionController {
   @Get()
   version() {
     return {
-      name: "@pzv-terminal/source",
+      name: '@pzv-terminal/source',
       node: process.version,
-      env: process.env.NODE_ENV ?? "unknown",
+      env: process.env.NODE_ENV ?? 'unknown',
     };
   }
 }

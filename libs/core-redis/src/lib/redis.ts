@@ -1,37 +1,38 @@
-import { createClient } from 'redis';
+import { createClient, type RedisClientType } from 'redis';
 
-type AnyRedisClient = ReturnType<typeof createClient>;
+let client: RedisClientType | null = null;
 
-let client: AnyRedisClient | null = null;
-
-export function getRedisClient(): AnyRedisClient {
+export function getRedisClient(): RedisClientType {
   if (client) return client;
 
-  const url = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
-  client = createClient({ url });
+  const url = process.env['REDIS_URL'] ?? 'redis://127.0.0.1:6379';
+
+  client = createClient({
+    url,
+    socket: {
+      // мягкий бесконечный reconnect с бэк-оффом до 2 секунд
+      reconnectStrategy: (retries) => Math.min(retries * 100, 2000),
+    },
+  });
 
   client.on('error', (err) => {
+    // просто логируем, не падаем
     console.error('Redis Client Error', err);
+  });
+
+  client.on('reconnecting', () => {
+    console.warn('Redis reconnecting...');
+  });
+
+  client.on('ready', () => {
+    console.log('Redis ready');
   });
 
   return client;
 }
 
-export async function connectRedis(): Promise<AnyRedisClient> {
+export async function connectRedis(): Promise<RedisClientType> {
   const c = getRedisClient();
   if (!c.isOpen) await c.connect();
   return c;
-}
-
-// ---- УДОБНЫЕ ОБЁРТКИ ----
-
-export async function redisGetString(key: string): Promise<string | null> {
-  const c = await connectRedis();
-  const value = await c.get(key);
-  return typeof value === 'string' ? value : null;
-}
-
-export async function redisSetJson(key: string, value: unknown): Promise<void> {
-  const c = await connectRedis();
-  await c.set(key, JSON.stringify(value));
 }
