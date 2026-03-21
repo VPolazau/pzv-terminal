@@ -42,13 +42,16 @@ export class RunnerService implements OnModuleInit {
 
   async onModuleInit() {
     const redis = await connectRedis();
+    const mode = (process.env['RUNNER_MODE'] ?? 'single').toLowerCase();
 
     this.logger.info({ symbol, tfs }, 'Runner started');
+    this.logger.info({ mode }, 'Runner mode');
 
     setInterval(async () => {
-      const mode = (process.env['RUNNER_MODE'] ?? 'single').toLowerCase();
       try {
         const token = process.env['TELEGRAM_BOT_TOKEN'];
+
+        this.logger.debug({ mode }, 'Runner mode');
 
         for (const tf of tfs) {
           const limit = limitByTf[tf];
@@ -108,69 +111,73 @@ export class RunnerService implements OnModuleInit {
               continue;
             }
 
-            if (token) {
-              const lastSent = await getJson<{
-                candleCloseTime: number;
-                signal: string;
-              }>(redis, dedupeKey(tf));
+            const lastSent = await getJson<{
+              candleCloseTime: number;
+              signal: string;
+            }>(redis, dedupeKey(tf));
 
-              const mark = {
-                candleCloseTime: appended.closeTime,
-                signal: event.signal,
-              };
-              const shouldSend =
-                !lastSent ||
-                lastSent.candleCloseTime !== mark.candleCloseTime ||
-                lastSent.signal !== mark.signal;
+            const mark = {
+              candleCloseTime: appended.closeTime,
+              signal: event.signal,
+            };
+            const shouldSend =
+              !lastSent ||
+              lastSent.candleCloseTime !== mark.candleCloseTime ||
+              lastSent.signal !== mark.signal;
 
-              if (shouldSend) {
-                const emoji = event.signal === 'bull_cross' ? '🟢' : '🔴';
-                const text =
-                  `${emoji} SMA cross\n` +
-                  `Symbol: ${event.symbol}\n` +
-                  `TF: ${event.tf}\n` +
-                  `Fast/Slow: ${event.fast}/${event.slow}\n` +
-                  `Signal: ${event.signal}\n` +
-                  `candle close: ${new Date(appended.closeTime).toISOString()}\n`;
+            if (shouldSend) {
+              const emoji = event.signal === 'bull_cross' ? '🟢' : '🔴';
+              const text =
+                `${emoji} SMA cross\n` +
+                `Symbol: ${event.symbol}\n` +
+                `TF: ${event.tf}\n` +
+                `Fast/Slow: ${event.fast}/${event.slow}\n` +
+                `Signal: ${event.signal}\n` +
+                `candle close: ${new Date(appended.closeTime).toISOString()}\n`;
 
-                if (mode === 'subs') {
-                  const recipientsKey = `subs:pair:${symbol}:${tf}`;
-                  const chatIds = await redis.sMembers(recipientsKey);
+              if (mode === 'subs') {
+                const recipientsKey = `subs:pair:${symbol}:${tf}`;
+                const chatIds = await redis.sMembers(recipientsKey);
 
-                  if (chatIds.length === 0) {
-                    this.logger.debug({ tf }, 'No subscribers - skip notify');
-                    continue;
-                  }
+                if (chatIds.length === 0) {
+                  this.logger.debug({ tf }, 'No subscribers - skip notify');
+                  continue;
+                }
 
-                  for (const cid of chatIds) {
-                    try {
-                      await sendTelegramMessage({ token, chatId: cid, text });
-                      await setJson(redis, dedupeKey(tf), mark, ttlSeconds);
-                    } catch (e) {
-                      this.logger.error(
-                        { err: e, tf, chatId: cid },
-                        'Telegram send failed',
-                      );
-                    }
-                  }
-                } else {
-                  const chatId = process.env['TELEGRAM_CHAT_ID'];
-                  if (!chatId) {
-                    this.logger.debug(
-                      'TELEGRAM_CHAT_ID is not set. Skip notify.',
-                    );
-                    continue;
-                  }
+                let sent = 0;
 
+                for (const cid of chatIds) {
                   try {
-                    await sendTelegramMessage({ token, chatId, text });
-                    await setJson(redis, dedupeKey(tf), mark, ttlSeconds);
+                    await sendTelegramMessage({ token, chatId: cid, text });
+                    sent++;
                   } catch (e) {
                     this.logger.error(
-                      { err: e, tf, chatId },
+                      { err: e, tf, chatId: cid },
                       'Telegram send failed',
                     );
                   }
+                }
+
+                if (sent > 0) {
+                  await setJson(redis, dedupeKey(tf), mark, ttlSeconds);
+                }
+              } else {
+                const chatId = process.env['TELEGRAM_CHAT_ID'];
+                if (!chatId) {
+                  this.logger.debug(
+                    'TELEGRAM_CHAT_ID is not set. Skip notify.',
+                  );
+                  continue;
+                }
+
+                try {
+                  await sendTelegramMessage({ token, chatId, text });
+                  await setJson(redis, dedupeKey(tf), mark, ttlSeconds);
+                } catch (e) {
+                  this.logger.error(
+                    { err: e, tf, chatId },
+                    'Telegram send failed',
+                  );
                 }
               }
             }
