@@ -111,10 +111,11 @@ export class RunnerService implements OnModuleInit {
               continue;
             }
 
+            const dKey = dedupeKey(tf);
             const lastSent = await getJson<{
               candleCloseTime: number;
               signal: string;
-            }>(redis, dedupeKey(tf));
+            }>(redis, dKey);
 
             const mark = {
               candleCloseTime: appended.closeTime,
@@ -159,7 +160,7 @@ export class RunnerService implements OnModuleInit {
                 }
 
                 if (sent > 0) {
-                  await setJson(redis, dedupeKey(tf), mark, ttlSeconds);
+                  await setJson(redis, dKey, mark, ttlSeconds);
                 }
               } else {
                 const chatId = process.env['TELEGRAM_CHAT_ID'];
@@ -172,7 +173,7 @@ export class RunnerService implements OnModuleInit {
 
                 try {
                   await sendTelegramMessage({ token, chatId, text });
-                  await setJson(redis, dedupeKey(tf), mark, ttlSeconds);
+                  await setJson(redis, dKey, mark, ttlSeconds);
                 } catch (e) {
                   this.logger.error(
                     { err: e, tf, chatId },
