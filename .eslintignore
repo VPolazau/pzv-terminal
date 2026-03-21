@@ -1,8 +1,52 @@
+# dependencies
 node_modules
+
+# private env only (telegram)
+.env.local
+.env.*.local
+
+# build
 dist
+apps/dist
 tmp
-.nx
+out-tsc
+coverage
+
+# nx cache
+.nx/cache
+.nx/workspace-data
+
+# logs
+*.log
+error.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# system files
+.DS_Store
+Thumbs.db
+__MACOSX
+
+# editors
 .idea
-.vscode
-.obsidian
-docs/.obsidian
+
+# optional local editor stuff
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc generated
+.sass-cache
+connect.lock
+libpeerconnection.log
+typings
+.project
+.classpath
+.c9/
+.settings/
+*.launch
+*.sublime-workspace

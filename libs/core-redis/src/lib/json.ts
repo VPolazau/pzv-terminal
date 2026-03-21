@@ -4,8 +4,16 @@ export async function setJson<T>(
   redis: RedisClientType,
   key: string,
   value: T,
+  ttlSeconds?: number,
 ): Promise<void> {
-  await redis.set(key, JSON.stringify(value));
+  const payload = JSON.stringify(value);
+
+  if (ttlSeconds && ttlSeconds > 0) {
+    await redis.set(key, payload, { EX: ttlSeconds });
+    return;
+  }
+
+  await redis.set(key, payload);
 }
 
 export async function getJson<T>(
@@ -13,9 +21,6 @@ export async function getJson<T>(
   key: string,
 ): Promise<T | null> {
   const raw = await redis.get(key);
-
-  // В некоторых типизациях redis raw может быть string | {} | null
   if (typeof raw !== 'string' || raw.length === 0) return null;
-
   return JSON.parse(raw) as T;
 }

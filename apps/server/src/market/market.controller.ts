@@ -1,21 +1,23 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
+import type { RedisClientType } from 'redis';
+import { REDIS } from '../redis/redis.module';
+import { getJson } from '@pzv-terminal/core-redis';
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
-import { connectRedis, getJson } from '@pzv-terminal/core-redis';
 
 @Controller('market')
 export class MarketController {
+  constructor(@Inject(REDIS) private readonly redis: RedisClientType) {}
+
   @Get('candles')
   async candles(
     @Query('symbol') symbol = 'BTCUSDT',
-    @Query('tf') tf: Timeframe = '1m',
-    @Query('limit') limitStr = '120',
+    @Query('tf') tf = '1m' as Timeframe,
+    @Query('limit') limit = '200',
   ): Promise<Candle[]> {
-    const limit = Math.max(1, Math.min(1000, Number(limitStr) || 120));
-
-    const redis = await connectRedis();
-    const key = `market:candles:${symbol}:${tf}`;
-
-    const data = await getJson<Candle[]>(redis, key);
-    return data ? data.slice(-limit) : [];
+    const s = String(symbol).trim().toUpperCase();
+    const key = `market:candles:${s}:${tf}`;
+    const candles = (await getJson<Candle[]>(this.redis, key)) ?? [];
+    const n = Math.max(1, Math.min(Number(limit) || 200, candles.length));
+    return candles.slice(-n);
   }
 }

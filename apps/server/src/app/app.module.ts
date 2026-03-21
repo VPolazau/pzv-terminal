@@ -7,9 +7,11 @@ import { MarketController } from '../market/market.controller';
 import { IndicatorsController } from '../indicators/indicators.controller';
 import { SignalsController } from '../signals/signals.controller';
 import { LastSignalsController } from '../signals/last-signals.controller';
+import { SubscriptionsController } from '../subscriptions/subscriptions.controller';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
-  imports: [],
+  imports: [RedisModule],
   controllers: [
     AppController,
     HealthController,
@@ -18,6 +20,7 @@ import { LastSignalsController } from '../signals/last-signals.controller';
     IndicatorsController,
     SignalsController,
     LastSignalsController,
+    SubscriptionsController,
   ],
   providers: [AppService],
 })
