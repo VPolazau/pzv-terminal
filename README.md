@@ -2,6 +2,9 @@
 
 Монорепа для server + worker + shared libs.
 
+Текущий market flow, live SMA, Redis state и retry Telegram описаны в
+[docs/live-signals.md](docs/live-signals.md).
+
 ## Стек
 
 - Nx

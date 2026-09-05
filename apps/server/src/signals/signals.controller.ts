@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
 import { connectRedis, getJson } from '@pzv-terminal/core-redis';
 import { smaAt } from '@pzv-terminal/shared-utils';
+import { parseSmaPeriod } from '../indicators/parse-sma-period';
 
 type CrossSignal = 'bull_cross' | 'bear_cross' | 'none';
 
@@ -14,8 +15,8 @@ export class SignalsController {
     @Query('fast') fastStr = '10',
     @Query('slow') slowStr = '50',
   ) {
-    const fast = Math.max(1, Math.min(200, Number(fastStr) || 10));
-    const slow = Math.max(2, Math.min(500, Number(slowStr) || 50));
+    const fast = parseSmaPeriod(fastStr, 'fast', 1, 200);
+    const slow = parseSmaPeriod(slowStr, 'slow', 2, 500);
 
     const redis = await connectRedis();
     const candles =

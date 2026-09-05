@@ -4,6 +4,7 @@ import { getJson } from '@pzv-terminal/core-redis';
 import { sma } from '@pzv-terminal/shared-utils';
 import { REDIS } from '../redis/redis.module';
 import type { RedisClientType } from 'redis';
+import { parseSmaPeriod } from './parse-sma-period';
 
 @Controller('indicators')
 export class IndicatorsController {
@@ -17,7 +18,7 @@ export class IndicatorsController {
   ) {
     const s = String(symbol).trim().toUpperCase();
     const key = `market:candles:${s}:${tf}`;
-    const period = Math.max(1, Math.min(500, Number(periodStr) || 10));
+    const period = parseSmaPeriod(periodStr, 'period', 1, 500);
     const candles = (await getJson<Candle[]>(this.redis, key)) ?? [];
     const closes = candles.map((c) => c.close);
     const value = sma(closes, period);

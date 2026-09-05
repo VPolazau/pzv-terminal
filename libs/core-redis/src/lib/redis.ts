@@ -9,6 +9,7 @@ export function getRedisClient(): RedisClientType {
 
   client = createClient({
     url,
+    disableOfflineQueue: true,
     socket: {
       // мягкий бесконечный reconnect с бэк-оффом до 2 секунд
       reconnectStrategy: (retries) => Math.min(retries * 100, 2000),
@@ -29,6 +30,24 @@ export function getRedisClient(): RedisClientType {
   });
 
   return client;
+}
+
+export async function closeRedis(): Promise<void> {
+  const current = client;
+  client = null;
+  if (!current?.isOpen) return;
+  if (!current.isReady) {
+    current.destroy();
+    return;
+  }
+  const timeout = setTimeout(() => {
+    if (current.isOpen) current.destroy();
+  }, 2_000);
+  try {
+    await current.close();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function connectRedis(): Promise<RedisClientType> {

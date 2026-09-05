@@ -1,192 +1,224 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import type {
+  Candle,
+  ClosedSignalEvent,
+  Timeframe,
+} from '@pzv-terminal/shared-types';
+import type { RedisClientType } from 'redis';
 import { createLogger } from '@pzv-terminal/core-logger';
-import { connectRedis, getJson, setJson } from '@pzv-terminal/core-redis';
-import { smaCrossAt, sendTelegramMessage } from '@pzv-terminal/shared-utils';
-import { appendMockCandle, currentCloseTime } from '../jobs/candles.job';
-import type { SignalEvent, Timeframe } from '@pzv-terminal/shared-types';
+import { closeRedis, connectRedis } from '@pzv-terminal/core-redis';
+import {
+  fetchBinancePrice,
+  fetchBinanceTime,
+  smaCrossAt,
+  timeframeMs,
+} from '@pzv-terminal/shared-utils';
+import { appendMockCandle } from '../jobs/candles.job';
+import { syncBinanceCandles } from '../jobs/binance-candles.job';
+import { processLiveObservation } from './live-signal.processor';
+import {
+  NotificationDelivery,
+  notificationRecipients,
+  pendingNotification,
+  pendingNotificationsKey,
+} from './notification-delivery';
+import { SequentialLoop } from './sequential-loop';
 
 const symbol = 'BTCUSDT';
-const tfs = ['1m', '15m', '45m', '1h', '4h', '1d'] as const;
-
-const limitByTf: Record<(typeof tfs)[number], number> = {
-  '1m': 200,
-  '15m': 200,
-  '45m': 200,
-  '1h': 200,
-  '4h': 200,
-  '1d': 400,
+const tfs: Timeframe[] = ['1m', '4h'];
+const ttlByTf: Record<Timeframe, number> = {
+  '1m': 2 * 86400,
+  '4h': 180 * 86400,
 };
-
-const ttlByTf: Record<(typeof tfs)[number], number> = {
-  '1m': 2 * 24 * 60 * 60,
-  '15m': 14 * 24 * 60 * 60,
-  '45m': 30 * 24 * 60 * 60,
-  '1h': 60 * 24 * 60 * 60,
-  '4h': 180 * 24 * 60 * 60,
-  '1d': 365 * 24 * 60 * 60,
-};
-
-function signalsKey(tf: Timeframe) {
-  return `signals:last:sma_cross:${symbol}:${tf}`;
-}
-function dedupeKey(tf: Timeframe) {
-  return `signals:last_sent:sma_cross:${symbol}:${tf}`;
-}
-function lastCloseKey(tf: Timeframe) {
-  return `market:last_close:${symbol}:${tf}`;
-}
 
 @Injectable()
-export class RunnerService implements OnModuleInit {
+export class RunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = createLogger({ name: 'worker' });
+  private redis!: RedisClientType;
+  private marketLoop?: SequentialLoop;
+  private deliveryLoop?: SequentialLoop;
+  private delivery?: NotificationDelivery;
+  private readonly history = new Map<
+    Timeframe,
+    { currentOpen: number; candles: Candle[] }
+  >();
+  private source = 'mock';
 
-  async onModuleInit() {
-    const redis = await connectRedis();
-    const mode = (process.env['RUNNER_MODE'] ?? 'single').toLowerCase();
+  async onModuleInit(): Promise<void> {
+    this.source = (process.env['DATA_SOURCE'] ?? 'mock').toLowerCase();
+    if (!['mock', 'binance'].includes(this.source))
+      throw new Error('DATA_SOURCE must be binance or mock');
+    this.redis = await connectRedis();
+    const delivery = new NotificationDelivery(this.redis, (error) =>
+      this.logger.error(
+        { err: error },
+        'Telegram delivery failed; pending retained',
+      ),
+    );
+    this.delivery = delivery;
+    this.marketLoop = new SequentialLoop(
+      () => this.processCycle(),
+      1000,
+      (error) => this.logger.error({ err: error }, 'Market cycle failed'),
+    );
+    this.deliveryLoop = new SequentialLoop(
+      () => delivery.flush(),
+      250,
+      (error) => this.logger.error({ err: error }, 'Delivery cycle failed'),
+    );
+    this.logger.info(
+      {
+        symbol,
+        tfs,
+        source: this.source,
+        mode: process.env['RUNNER_MODE'] ?? 'single',
+      },
+      'Runner started',
+    );
+    this.deliveryLoop.start();
+    this.marketLoop.start();
+  }
 
-    this.logger.info({ symbol, tfs }, 'Runner started');
-    this.logger.info({ mode }, 'Runner mode');
-
-    setInterval(async () => {
-      try {
-        const token = process.env['TELEGRAM_BOT_TOKEN'];
-
-        this.logger.debug({ mode }, 'Runner mode');
-
-        for (const tf of tfs) {
-          const limit = limitByTf[tf];
-          const ttlSeconds = ttlByTf[tf];
-
-          const expectedClose = currentCloseTime(tf);
-          const processed = Number((await redis.get(lastCloseKey(tf))) ?? 0);
-
-          // если эту “закрытую свечу” уже обработали - ничего не делаем
-          if (processed === expectedClose) {
-            this.logger.debug({ tf }, 'Skip - candle not closed yet');
-            continue;
-          }
-
-          const { candles, appended } = await appendMockCandle({
-            redis,
-            symbol,
-            tf,
-            limit,
-            ttlSeconds,
-          });
-
-          // помечаем обработку (храним closeTime последней свечи)
-          await redis.set(lastCloseKey(tf), String(expectedClose), {
-            EX: ttlSeconds,
-          });
-
-          const closes = candles.map((c) => c.close);
-          const idx = closes.length - 1;
-
-          const cross = smaCrossAt({ closes, fast: 10, slow: 50, index: idx });
-
-          if (
-            cross.signal !== 'none' &&
-            cross.now.fast !== null &&
-            cross.now.slow !== null &&
-            cross.prev.fast !== null &&
-            cross.prev.slow !== null
-          ) {
-            const event: SignalEvent = {
-              type: 'sma_cross',
+  private async processCycle(): Promise<void> {
+    if (this.source === 'mock') {
+      await Promise.all(
+        tfs.map((tf) =>
+          this.processMock(tf).catch((error) =>
+            this.logTimeframeError(tf, error),
+          ),
+        ),
+      );
+      return;
+    }
+    // Exchange clock determines CLOSED history, regardless of local clock or mock scale.
+    const clockRequestStarted = performance.now();
+    const serverTime = await fetchBinanceTime();
+    const ready = await Promise.all(
+      tfs.map(async (tf) => {
+        try {
+          const currentOpen =
+            Math.floor(serverTime / timeframeMs(tf)) * timeframeMs(tf);
+          let history = this.history.get(tf);
+          if (!history || history.currentOpen !== currentOpen) {
+            const candles = await syncBinanceCandles({
+              redis: this.redis,
               symbol,
               tf,
-              fast: 10,
-              slow: 50,
-              signal: cross.signal,
-              ts: appended.closeTime,
-              now: { fast: cross.now.fast, slow: cross.now.slow },
-              prev: { fast: cross.prev.fast, slow: cross.prev.slow },
-            };
-
-            await setJson(redis, signalsKey(tf), event);
-            this.logger.warn({ tf, signal: event.signal }, 'SMA cross signal!');
-
-            if (!token) {
-              this.logger.debug('Telegram token is not set. Skip notify.');
-              continue;
-            }
-
-            const dKey = dedupeKey(tf);
-            const lastSent = await getJson<{
-              candleCloseTime: number;
-              signal: string;
-            }>(redis, dKey);
-
-            const mark = {
-              candleCloseTime: appended.closeTime,
-              signal: event.signal,
-            };
-            const shouldSend =
-              !lastSent ||
-              lastSent.candleCloseTime !== mark.candleCloseTime ||
-              lastSent.signal !== mark.signal;
-
-            if (shouldSend) {
-              const emoji = event.signal === 'bull_cross' ? '🟢' : '🔴';
-              const text =
-                `${emoji} SMA cross\n` +
-                `Symbol: ${event.symbol}\n` +
-                `TF: ${event.tf}\n` +
-                `Fast/Slow: ${event.fast}/${event.slow}\n` +
-                `Signal: ${event.signal}\n` +
-                `candle close: ${new Date(appended.closeTime).toISOString()}\n`;
-
-              if (mode === 'subs') {
-                const recipientsKey = `subs:pair:${symbol}:${tf}`;
-                const chatIds = await redis.sMembers(recipientsKey);
-
-                if (chatIds.length === 0) {
-                  this.logger.debug({ tf }, 'No subscribers - skip notify');
-                  continue;
-                }
-
-                let sent = 0;
-
-                for (const cid of chatIds) {
-                  try {
-                    await sendTelegramMessage({ token, chatId: cid, text });
-                    sent++;
-                  } catch (e) {
-                    this.logger.error(
-                      { err: e, tf, chatId: cid },
-                      'Telegram send failed',
-                    );
-                  }
-                }
-
-                if (sent > 0) {
-                  await setJson(redis, dKey, mark, ttlSeconds);
-                }
-              } else {
-                const chatId = process.env['TELEGRAM_CHAT_ID'];
-                if (!chatId) {
-                  this.logger.debug(
-                    'TELEGRAM_CHAT_ID is not set. Skip notify.',
-                  );
-                  continue;
-                }
-
-                try {
-                  await sendTelegramMessage({ token, chatId, text });
-                  await setJson(redis, dKey, mark, ttlSeconds);
-                } catch (e) {
-                  this.logger.error(
-                    { err: e, tf, chatId },
-                    'Telegram send failed',
-                  );
-                }
-              }
-            }
+              limit: 200,
+              ttlSeconds: ttlByTf[tf],
+              serverTime,
+            });
+            history = { currentOpen, candles };
+            this.history.set(tf, history);
           }
+          return { tf, ...history };
+        } catch (error) {
+          this.logTimeframeError(tf, error);
+          return null;
         }
-      } catch (e) {
-        this.logger.error({ err: e }, 'Tick failed');
-      }
-    }, 10_000);
+      }),
+    );
+    if (!ready.some(Boolean)) return;
+    // One price response shared by both timeframes, fetched after history sync.
+    const observation = await fetchBinancePrice(symbol);
+    // Conservative upper bound: skip a timeframe if this request sequence could
+    // have crossed its candle boundary. The next cycle synchronizes it first.
+    const latestPossibleTime =
+      serverTime + (performance.now() - clockRequestStarted);
+    await Promise.all(
+      ready.map(async (item) => {
+        if (!item) return;
+        const { tf, currentOpen, candles } = item;
+        if (
+          Math.floor(latestPossibleTime / timeframeMs(tf)) * timeframeMs(tf) !==
+          currentOpen
+        )
+          return;
+        try {
+          const event = await processLiveObservation({
+            redis: this.redis,
+            symbol,
+            tf,
+            candles,
+            ...observation,
+            candleOpenTime: currentOpen,
+          });
+          if (event)
+            this.logger.info(
+              {
+                id: event.id,
+                tf,
+                signal: event.signal,
+                observedAt: event.observedAt,
+                detectedAt: event.detectedAt,
+              },
+              'SMA cross LIVE',
+            );
+        } catch (error) {
+          this.logTimeframeError(tf, error);
+        }
+      }),
+    );
+  }
+
+  private logTimeframeError(tf: Timeframe, error: unknown): void {
+    this.logger.error({ err: error, tf }, 'Timeframe processing failed');
+  }
+
+  private async processMock(tf: Timeframe): Promise<void> {
+    const { candles, appended } = await appendMockCandle({
+      redis: this.redis,
+      symbol,
+      tf,
+      limit: 200,
+      ttlSeconds: ttlByTf[tf],
+    });
+    if (!appended) return;
+    const cross = smaCrossAt({
+      closes: candles.map((c) => c.close),
+      fast: 10,
+      slow: 50,
+      index: candles.length - 1,
+    });
+    if (
+      cross.signal === 'none' ||
+      cross.now.fast === null ||
+      cross.now.slow === null ||
+      cross.prev.fast === null ||
+      cross.prev.slow === null
+    )
+      return;
+    const event: ClosedSignalEvent = {
+      type: 'sma_cross',
+      mode: 'closed',
+      symbol,
+      tf,
+      fast: 10,
+      slow: 50,
+      signal: cross.signal,
+      ts: appended.closeTime,
+      now: { fast: cross.now.fast, slow: cross.now.slow },
+      prev: { fast: cross.prev.fast, slow: cross.prev.slow },
+    };
+    const id = randomUUID();
+    const recipients = await notificationRecipients(this.redis, symbol, tf);
+    const transaction = this.redis
+      .multi()
+      .set(`signals:last:sma_cross:${symbol}:${tf}`, JSON.stringify(event));
+    if (recipients.length)
+      transaction.hSet(
+        pendingNotificationsKey,
+        id,
+        JSON.stringify(pendingNotification(id, event, recipients)),
+      );
+    await transaction.exec();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.delivery?.stop();
+    // Stop scheduling first; let bounded in-flight HTTP calls finish, then close Redis.
+    await Promise.all([this.marketLoop?.stop(), this.deliveryLoop?.stop()]);
+    await closeRedis();
   }
 }

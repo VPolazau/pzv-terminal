@@ -9,18 +9,18 @@ function tfToMs(tf: Timeframe): number {
     switch (tf) {
       case '1m':
         return 60_000;
-      case '5m':
-        return 5 * 60_000;
-      case '15m':
-        return 15 * 60_000;
-      case '45m':
-        return 45 * 60_000;
-      case '1h':
-        return 60 * 60_000;
+      // case '5m':
+      //   return 5 * 60_000;
+      // case '15m':
+      //   return 15 * 60_000;
+      // case '45m':
+      //   return 45 * 60_000;
+      // case '1h':
+      //   return 60 * 60_000;
       case '4h':
         return 4 * 60 * 60_000;
-      case '1d':
-        return 24 * 60 * 60_000;
+      // case '1d':
+      //   return 24 * 60 * 60_000;
     }
   })();
 
@@ -97,7 +97,7 @@ export async function initMockCandles(params: {
   const { redis, symbol, tf, limit, ttlSeconds } = params;
 
   const step = tfToMs(tf);
-  const close = currentCloseTime(tf);
+  const close = currentCloseTime(tf) - step;
   const startOpen = close - step * limit;
 
   let lastClose = 60_000;
@@ -142,14 +142,18 @@ export async function appendMockCandle(params: {
   tf: Timeframe;
   limit: number;
   ttlSeconds?: number;
-}): Promise<{ candles: Candle[]; appended: Candle }> {
+}): Promise<{ candles: Candle[]; appended?: Candle }> {
   const { redis, symbol, tf, limit, ttlSeconds } = params;
 
   const key = candlesKey(symbol, tf);
   const existing = (await getJson<Candle[]>(redis, key)) ?? [];
 
   // если пусто - инициализируем
-  if (existing.length === 0) {
+  if (
+    existing.length === 0 ||
+    existing.some((c) => c.source !== 'mock') ||
+    existing[existing.length - 1].closeTime > Date.now()
+  ) {
     const init = await initMockCandles({
       redis,
       symbol,
@@ -157,11 +161,13 @@ export async function appendMockCandle(params: {
       limit,
       ttlSeconds,
     });
-    return { candles: init, appended: init[init.length - 1] };
+    return { candles: init };
   }
 
   const last = existing[existing.length - 1];
   const step = tfToMs(tf);
+
+  if (last.closeTime + step > Date.now()) return { candles: existing };
 
   const openTime = last.closeTime;
   const closeTime = openTime + step;
