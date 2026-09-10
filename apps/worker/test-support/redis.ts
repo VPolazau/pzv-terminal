@@ -50,10 +50,11 @@ export function candle(
   index: number,
   tf: Timeframe = '1m',
   close = 100,
+  symbol = 'BTCUSDT',
 ): Candle {
-  const step = tf === '1m' ? 60000 : 14400000;
+  const step = { '1m': 60000, '4h': 14400000, '1d': 86400000 }[tf];
   return {
-    symbol: 'BTCUSDT',
+    symbol,
     tf,
     source: 'binance',
     openTime: index * step,

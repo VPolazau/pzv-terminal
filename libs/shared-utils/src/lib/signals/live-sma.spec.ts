@@ -71,3 +71,63 @@ describe('live SMA state machine', () => {
     ).toBeNull();
   });
 });
+
+describe('SMA1 / SMA238 intrabar calculation', () => {
+  it('uses current price as SMA1 and exactly the last 237 closed closes as SMA238', () => {
+    const last237 = Array.from({ length: 237 }, (_, i) => 100 + i);
+    const closedCloses = [...Array(63).fill(99999), ...last237];
+    const before = [...closedCloses];
+    const result = liveSmaTransition({
+      closedCloses,
+      price: 400,
+      fast: 1,
+      slow: 238,
+      observedAt: 1,
+      previous: null,
+    });
+    expect(result?.state.now.fast).toBe(400);
+    expect(result?.state.now.slow).toBe(
+      (last237.reduce((a, b) => a + b, 0) + 400) / 238,
+    );
+    expect(closedCloses).toEqual(before);
+    expect(result?.signal).toBe('none');
+  });
+  it('requires at least 237 closed candles', () => {
+    expect(
+      liveSmaTransition({
+        closedCloses: Array(236).fill(100),
+        price: 110,
+        fast: 1,
+        slow: 238,
+        observedAt: 1,
+        previous: null,
+      }),
+    ).toBeNull();
+  });
+  it('keeps equality directional and emits BUY/SELL/BUY technical transitions without cooldown', () => {
+    let previous: LiveSmaState | null = null;
+    const signals = [90, 90, 100, 110, 110, 100, 90, 110].map((price) => {
+      const result = liveSmaTransition({
+        closedCloses: Array(237).fill(100),
+        price,
+        fast: 1,
+        slow: 238,
+        observedAt: 1,
+        previous,
+      });
+      if (!result) throw new Error('Expected result');
+      previous = result.state;
+      return result.signal;
+    });
+    expect(signals).toEqual([
+      'none',
+      'none',
+      'none',
+      'bull_cross',
+      'none',
+      'none',
+      'bear_cross',
+      'bull_cross',
+    ]);
+  });
+});

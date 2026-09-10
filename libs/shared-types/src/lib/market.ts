@@ -7,7 +7,7 @@ export type Ticker = {
   source: 'mock' | 'binance' | 'mexc' | 'bybit';
 };
 
-export type Timeframe = '1m' | '4h';
+export type Timeframe = '1m' | '4h' | '1d';
 
 export type Candle = {
   symbol: Symbol;
@@ -34,6 +34,9 @@ export type ClosedSignalEvent = {
   fast: number;
   slow: number;
   signal: Exclude<SmaCrossSignal, 'none'>;
+  // Optional for compatibility with previously persisted events.
+  action?: 'BUY' | 'SELL';
+  suggestedStopLoss?: number;
   mode?: 'closed';
   ts: number;
   now: { fast: number; slow: number };

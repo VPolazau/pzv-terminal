@@ -1,7 +1,10 @@
 import { connectRedis, closeRedis } from '@pzv-terminal/core-redis';
+import { MONITORING_STRATEGY as strategy } from '@pzv-terminal/core-config';
 import {
+  BinanceHttpError,
   fetchBinancePrice,
   fetchBinanceTime,
+  timeframeMs,
 } from '@pzv-terminal/shared-utils';
 import { syncBinanceCandles } from '../jobs/binance-candles.job';
 import { processLiveObservation } from './live-signal.processor';
@@ -37,12 +40,34 @@ const sync = jest.mocked(syncBinanceCandles);
 const price = jest.mocked(fetchBinancePrice);
 const time = jest.mocked(fetchBinanceTime);
 const processLive = jest.mocked(processLiveObservation);
+const day = 86400000;
+const now = 400 * day + 30000;
+const streams = strategy.symbols.flatMap((symbol) =>
+  strategy.timeframes.map((tf) => `${symbol}:${tf}`),
+);
+const priceBySymbol: Record<string, number> = {
+  BTCUSDT: 110,
+  ETHUSDT: 210,
+  XRPUSDT: 310,
+  TAOUSDT: 410,
+};
+const historyFor: typeof syncBinanceCandles = async ({
+  symbol,
+  tf,
+  serverTime,
+  limit,
+}) => {
+  const currentIndex = Math.floor(serverTime / timeframeMs(tf));
+  return Array.from({ length: limit }, (_, i) =>
+    candle(currentIndex - limit + i, tf, priceBySymbol[symbol] - 10, symbol),
+  );
+};
 
-describe('Runner lifecycle and timeframe isolation', () => {
+describe('multi-symbol Runner', () => {
   let runner: RunnerService;
   beforeEach(() => {
     jest.useFakeTimers();
-    jest.setSystemTime(50000000);
+    jest.setSystemTime(now);
     jest.clearAllMocks();
     jest.replaceProperty(process, 'env', {
       DATA_SOURCE: 'binance',
@@ -51,11 +76,12 @@ describe('Runner lifecycle and timeframe isolation', () => {
     });
     jest.mocked(connectRedis).mockResolvedValue(memoryRedis().redis);
     jest.mocked(closeRedis).mockResolvedValue(undefined);
-    time.mockResolvedValue(43230000);
-    price.mockResolvedValue({ price: 110, observedAt: 50000000 });
-    sync.mockImplementation(async ({ tf }) =>
-      Array.from({ length: 200 }, (_, i) => candle(i, tf)),
-    );
+    time.mockResolvedValue(now);
+    price.mockImplementation(async (symbol) => ({
+      price: priceBySymbol[symbol],
+      observedAt: Date.now(),
+    }));
+    sync.mockImplementation(historyFor);
     processLive.mockResolvedValue(null);
     runner = new RunnerService();
   });
@@ -64,58 +90,128 @@ describe('Runner lifecycle and timeframe isolation', () => {
     jest.restoreAllMocks();
     jest.useRealTimers();
   });
-  it('uses one price for both timeframes and resyncs only when a real candle rolls over', async () => {
+  it('initializes exactly eight isolated streams and shares each symbol price across its timeframes', async () => {
     await runner.onModuleInit();
     await jest.advanceTimersByTimeAsync(100);
-    expect(price).toHaveBeenCalledTimes(1);
-    expect(processLive.mock.calls.map(([p]) => p.tf).sort()).toEqual([
-      '1m',
-      '4h',
-    ]);
-    for (const [p] of processLive.mock.calls) expect(p.price).toBe(110);
-    expect(sync).toHaveBeenCalledTimes(2);
+    expect(sync).toHaveBeenCalledTimes(8);
+    expect(price).toHaveBeenCalledTimes(4);
+    expect(
+      processLive.mock.calls.map(([p]) => `${p.symbol}:${p.tf}`).sort(),
+    ).toEqual([...streams].sort());
+    for (const [p] of processLive.mock.calls) {
+      expect(p.price).toBe(priceBySymbol[p.symbol]);
+      expect(p.candles).toHaveLength(300);
+      expect(
+        p.candles.every(
+          (c) =>
+            c.symbol === p.symbol &&
+            c.tf === p.tf &&
+            c.closeTime < p.candleOpenTime,
+        ),
+      ).toBe(true);
+    }
     await jest.advanceTimersByTimeAsync(1000);
-    expect(sync).toHaveBeenCalledTimes(2);
-    time.mockResolvedValue(43260001);
-    await jest.advanceTimersByTimeAsync(1000);
-    expect(sync).toHaveBeenCalledTimes(3);
-    expect(sync.mock.calls[2][0].tf).toBe('1m');
+    expect(sync).toHaveBeenCalledTimes(8);
+    expect(price).toHaveBeenCalledTimes(8);
+    for (const [p] of processLive.mock.calls)
+      expect(p.candles[0].close).toBe(priceBySymbol[p.symbol] - 10);
   });
-  it('still processes 4h when synchronization of 1m fails', async () => {
-    sync.mockImplementation(async ({ tf }) => {
-      if (tf === '1m') throw new Error('temporary');
-      return Array.from({ length: 200 }, (_, i) => candle(i, tf));
+  it('resyncs only the four 4h windows on a 4h boundary', async () => {
+    await runner.onModuleInit();
+    await jest.advanceTimersByTimeAsync(100);
+    time.mockResolvedValue(400 * day + timeframeMs('4h') + 1);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(sync).toHaveBeenCalledTimes(12);
+    expect(sync.mock.calls.slice(8).every(([p]) => p.tf === '4h')).toBe(true);
+  });
+  it('resyncs all eight streams on a day boundary', async () => {
+    await runner.onModuleInit();
+    await jest.advanceTimersByTimeAsync(100);
+    time.mockResolvedValue(401 * day + 1);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(sync).toHaveBeenCalledTimes(16);
+  });
+  it('isolates one failed history, backs off, and keeps all other cached windows', async () => {
+    sync.mockImplementation(async (p) => {
+      if (p.symbol === 'TAOUSDT' && p.tf === '1d') throw new Error('temporary');
+      return historyFor(p);
     });
     await runner.onModuleInit();
-    await jest.advanceTimersByTimeAsync(100);
-    expect(processLive).toHaveBeenCalledTimes(1);
-    expect(processLive.mock.calls[0][0].tf).toBe('4h');
-    expect(price).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(2100);
+    expect(
+      sync.mock.calls.filter(([p]) => p.symbol === 'TAOUSDT' && p.tf === '1d'),
+    ).toHaveLength(2);
+    expect(
+      sync.mock.calls.filter(
+        ([p]) => !(p.symbol === 'TAOUSDT' && p.tf === '1d'),
+      ),
+    ).toHaveLength(7);
+    expect(processLive).toHaveBeenCalledTimes(21);
+    sync.mockImplementation(historyFor);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(
+      processLive.mock.calls.some(
+        ([p]) => p.symbol === 'TAOUSDT' && p.tf === '1d',
+      ),
+    ).toBe(true);
   });
-  it('does not reuse a previous timeframe history if rollover synchronization fails', async () => {
+  it('does not reuse stale history after a failed rollover but continues healthy streams', async () => {
     await runner.onModuleInit();
     await jest.advanceTimersByTimeAsync(100);
     processLive.mockClear();
-    time.mockResolvedValue(43260001);
-    sync.mockRejectedValue(new Error('temporary'));
+    time.mockResolvedValue(400 * day + timeframeMs('4h') + 1);
+    sync.mockImplementation(async (p) => {
+      if (p.symbol === 'BTCUSDT' && p.tf === '4h') throw new Error('temporary');
+      return historyFor(p);
+    });
     await jest.advanceTimersByTimeAsync(1000);
-    expect(processLive).toHaveBeenCalledTimes(1);
-    expect(processLive.mock.calls[0][0].tf).toBe('4h');
+    expect(processLive).toHaveBeenCalledTimes(7);
+    expect(
+      processLive.mock.calls.some(
+        ([p]) => p.symbol === 'BTCUSDT' && p.tf === '4h',
+      ),
+    ).toBe(false);
   });
-  it('skips a timeframe if the price request crosses its candle boundary', async () => {
-    time.mockResolvedValue(43259999);
+  it('isolates a symbol price failure from all other symbols', async () => {
+    price.mockImplementation(async (symbol) => {
+      if (symbol === 'BTCUSDT') throw new Error('temporary');
+      return { price: priceBySymbol[symbol], observedAt: Date.now() };
+    });
+    await runner.onModuleInit();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(processLive).toHaveBeenCalledTimes(6);
+    expect(processLive.mock.calls.every(([p]) => p.symbol !== 'BTCUSDT')).toBe(
+      true,
+    );
+  });
+  it('honors IP-wide Binance Retry-After without request bursts', async () => {
+    time.mockRejectedValueOnce(new BinanceHttpError(429, 5000));
+    await runner.onModuleInit();
+    await jest.advanceTimersByTimeAsync(4100);
+    expect(time).toHaveBeenCalledTimes(1);
+    expect(price).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(time).toHaveBeenCalledTimes(2);
+    expect(price).toHaveBeenCalledTimes(4);
+  });
+  it('skips 4h calculations if price responses cross a 4h boundary', async () => {
+    time.mockResolvedValue(400 * day + timeframeMs('4h') - 1);
     price.mockImplementation(
-      () =>
+      (symbol) =>
         new Promise((resolve) =>
-          setTimeout(() => resolve({ price: 110, observedAt: Date.now() }), 10),
+          setTimeout(
+            () =>
+              resolve({ price: priceBySymbol[symbol], observedAt: Date.now() }),
+            10,
+          ),
         ),
     );
     await runner.onModuleInit();
     await jest.advanceTimersByTimeAsync(100);
-    expect(processLive).toHaveBeenCalledTimes(1);
-    expect(processLive.mock.calls[0][0].tf).toBe('4h');
+    expect(processLive).toHaveBeenCalledTimes(4);
+    expect(processLive.mock.calls.every(([p]) => p.tf === '1d')).toBe(true);
   });
-  it('keeps calculating while Telegram delivery is slow and stops both loops on shutdown', async () => {
+  it('keeps observing during slow delivery and shuts down without overlap', async () => {
     let release!: () => void;
     const flush = jest.fn(
       () =>
@@ -130,14 +226,13 @@ describe('Runner lifecycle and timeframe isolation', () => {
       );
     await runner.onModuleInit();
     await jest.advanceTimersByTimeAsync(2100);
-    expect(price).toHaveBeenCalledTimes(3);
+    expect(price).toHaveBeenCalledTimes(12);
     expect(flush).toHaveBeenCalledTimes(1);
     const stopping = runner.onModuleDestroy();
     release();
     await stopping;
-    const count = price.mock.calls.length;
     await jest.advanceTimersByTimeAsync(3000);
-    expect(price).toHaveBeenCalledTimes(count);
+    expect(price).toHaveBeenCalledTimes(12);
     expect(closeRedis).toHaveBeenCalled();
   });
 });

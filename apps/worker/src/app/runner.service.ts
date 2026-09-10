@@ -1,14 +1,12 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import type {
-  Candle,
-  ClosedSignalEvent,
-  Timeframe,
-} from '@pzv-terminal/shared-types';
+import type { Candle, ClosedSignalEvent } from '@pzv-terminal/shared-types';
 import type { RedisClientType } from 'redis';
+import { MONITORING_STRATEGY as strategy } from '@pzv-terminal/core-config';
 import { createLogger } from '@pzv-terminal/core-logger';
 import { closeRedis, connectRedis } from '@pzv-terminal/core-redis';
 import {
+  BinanceHttpError,
   fetchBinancePrice,
   fetchBinanceTime,
   smaCrossAt,
@@ -25,12 +23,7 @@ import {
 } from './notification-delivery';
 import { SequentialLoop } from './sequential-loop';
 
-const symbol = 'BTCUSDT';
-const tfs: Timeframe[] = ['1m', '4h'];
-const ttlByTf: Record<Timeframe, number> = {
-  '1m': 2 * 86400,
-  '4h': 180 * 86400,
-};
+type ActiveTimeframe = (typeof strategy.timeframes)[number];
 
 @Injectable()
 export class RunnerService implements OnModuleInit, OnModuleDestroy {
@@ -40,10 +33,15 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
   private deliveryLoop?: SequentialLoop;
   private delivery?: NotificationDelivery;
   private readonly history = new Map<
-    Timeframe,
+    string,
     { currentOpen: number; candles: Candle[] }
   >();
   private source = 'mock';
+  private readonly retries = new Map<
+    string,
+    { attempts: number; at: number }
+  >();
+  private binanceRetryAt = 0;
 
   async onModuleInit(): Promise<void> {
     this.source = (process.env['DATA_SOURCE'] ?? 'mock').toLowerCase();
@@ -69,8 +67,7 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
     );
     this.logger.info(
       {
-        symbol,
-        tfs,
+        strategy,
         source: this.source,
         mode: process.env['RUNNER_MODE'] ?? 'single',
       },
@@ -83,53 +80,101 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
   private async processCycle(): Promise<void> {
     if (this.source === 'mock') {
       await Promise.all(
-        tfs.map((tf) =>
-          this.processMock(tf).catch((error) =>
-            this.logTimeframeError(tf, error),
+        strategy.symbols.flatMap((symbol) =>
+          strategy.timeframes.map((tf) =>
+            this.processMock(symbol, tf).catch((error) =>
+              this.logger.error(
+                { err: error, symbol, tf },
+                'Mock processing failed',
+              ),
+            ),
           ),
         ),
       );
       return;
     }
-    // Exchange clock determines CLOSED history, regardless of local clock or mock scale.
+    if (performance.now() < this.binanceRetryAt || !this.retryDue('time'))
+      return;
     const clockRequestStarted = performance.now();
-    const serverTime = await fetchBinanceTime();
+    let serverTime: number;
+    try {
+      serverTime = await fetchBinanceTime();
+      this.retries.delete('time');
+    } catch (error) {
+      this.recordFailure('time', error);
+      return;
+    }
+    // Four independent symbols, with at most two history requests per symbol.
+    await Promise.all(
+      strategy.symbols.map((symbol) =>
+        this.processBinanceSymbol(symbol, serverTime, clockRequestStarted),
+      ),
+    );
+  }
+
+  private async processBinanceSymbol(
+    symbol: string,
+    serverTime: number,
+    clockRequestStarted: number,
+  ): Promise<void> {
     const ready = await Promise.all(
-      tfs.map(async (tf) => {
+      strategy.timeframes.map(async (tf) => {
+        const key = `${symbol}:${tf}`;
         try {
           const currentOpen =
             Math.floor(serverTime / timeframeMs(tf)) * timeframeMs(tf);
-          let history = this.history.get(tf);
-          if (!history || history.currentOpen !== currentOpen) {
+          let history = this.history.get(key);
+          if (
+            !history ||
+            history.currentOpen !== currentOpen ||
+            history.candles.length !== strategy.historyLimit
+          ) {
+            if (
+              !this.retryDue(`history:${key}`) ||
+              performance.now() < this.binanceRetryAt
+            )
+              return null;
             const candles = await syncBinanceCandles({
               redis: this.redis,
               symbol,
               tf,
-              limit: 200,
-              ttlSeconds: ttlByTf[tf],
+              limit: strategy.historyLimit,
+              ttlSeconds: strategy.historyTtlSeconds[tf],
               serverTime,
             });
             history = { currentOpen, candles };
-            this.history.set(tf, history);
+            this.history.set(key, history);
+            this.retries.delete(`history:${key}`);
           }
           return { tf, ...history };
         } catch (error) {
-          this.logTimeframeError(tf, error);
+          this.recordFailure(`history:${key}`, error);
           return null;
         }
       }),
     );
-    if (!ready.some(Boolean)) return;
-    // One price response shared by both timeframes, fetched after history sync.
-    const observation = await fetchBinancePrice(symbol);
-    // Conservative upper bound: skip a timeframe if this request sequence could
-    // have crossed its candle boundary. The next cycle synchronizes it first.
+    if (
+      !ready.some(Boolean) ||
+      !this.retryDue(`price:${symbol}`) ||
+      performance.now() < this.binanceRetryAt
+    )
+      return;
+    let observation: Awaited<ReturnType<typeof fetchBinancePrice>>;
+    try {
+      // One price per symbol, shared by its 4h and 1d streams.
+      observation = await fetchBinancePrice(symbol);
+      this.retries.delete(`price:${symbol}`);
+    } catch (error) {
+      this.recordFailure(`price:${symbol}`, error);
+      return;
+    }
     const latestPossibleTime =
       serverTime + (performance.now() - clockRequestStarted);
     await Promise.all(
       ready.map(async (item) => {
         if (!item) return;
         const { tf, currentOpen, candles } = item;
+        // Do not combine a new interval's price with the previous interval's window.
         if (
           Math.floor(latestPossibleTime / timeframeMs(tf)) * timeframeMs(tf) !==
           currentOpen
@@ -148,37 +193,65 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
             this.logger.info(
               {
                 id: event.id,
+                symbol,
                 tf,
-                signal: event.signal,
+                action: event.action,
                 observedAt: event.observedAt,
                 detectedAt: event.detectedAt,
               },
               'SMA cross LIVE',
             );
         } catch (error) {
-          this.logTimeframeError(tf, error);
+          this.logger.error(
+            { err: error, symbol, tf },
+            'Live processing failed',
+          );
         }
       }),
     );
   }
 
-  private logTimeframeError(tf: Timeframe, error: unknown): void {
-    this.logger.error({ err: error, tf }, 'Timeframe processing failed');
+  private retryDue(key: string): boolean {
+    return performance.now() >= (this.retries.get(key)?.at ?? 0);
   }
 
-  private async processMock(tf: Timeframe): Promise<void> {
+  private recordFailure(key: string, error: unknown): void {
+    const attempts = (this.retries.get(key)?.attempts ?? 0) + 1;
+    const delay = Math.max(
+      Math.min(30_000, 1000 * 2 ** Math.min(attempts - 1, 5)),
+      error instanceof BinanceHttpError ? error.retryAfterMs : 0,
+    );
+    const at = performance.now() + delay;
+    this.retries.set(key, { attempts, at });
+    // Binance weight limits are shared by IP, so respect a rate-limit response
+    // across all streams. Ordinary stream errors remain local.
+    if (
+      error instanceof BinanceHttpError &&
+      (error.status === 429 || error.status === 418)
+    )
+      this.binanceRetryAt = Math.max(this.binanceRetryAt, at);
+    this.logger.error(
+      { err: error, key, retryInMs: delay },
+      'Binance request failed',
+    );
+  }
+
+  private async processMock(
+    symbol: string,
+    tf: ActiveTimeframe,
+  ): Promise<void> {
     const { candles, appended } = await appendMockCandle({
       redis: this.redis,
       symbol,
       tf,
-      limit: 200,
-      ttlSeconds: ttlByTf[tf],
+      limit: strategy.historyLimit,
+      ttlSeconds: strategy.historyTtlSeconds[tf],
     });
     if (!appended) return;
     const cross = smaCrossAt({
       closes: candles.map((c) => c.close),
-      fast: 10,
-      slow: 50,
+      fast: strategy.fast,
+      slow: strategy.slow,
       index: candles.length - 1,
     });
     if (
@@ -194,9 +267,10 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
       mode: 'closed',
       symbol,
       tf,
-      fast: 10,
-      slow: 50,
+      fast: strategy.fast,
+      slow: strategy.slow,
       signal: cross.signal,
+      action: cross.signal === 'bull_cross' ? 'BUY' : 'SELL',
       ts: appended.closeTime,
       now: { fast: cross.now.fast, slow: cross.now.slow },
       prev: { fast: cross.prev.fast, slow: cross.prev.slow },

@@ -19,6 +19,8 @@ function tfToMs(tf: Timeframe): number {
       //   return 60 * 60_000;
       case '4h':
         return 4 * 60 * 60_000;
+      case '1d':
+        return 24 * 60 * 60_000;
       // case '1d':
       //   return 24 * 60 * 60_000;
     }
