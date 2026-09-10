@@ -1,0 +1,29 @@
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Push requires explicit user approval",
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Do not rewrite or destroy local work. Ask the user for a safer alternative.",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "down", "-v"],
+    decision = "prompt",
+    justification = "This deletes local Docker volumes and stored Redis data.",
+)
+
+prefix_rule(
+    pattern = ["git", "clean"],
+    decision = "prompt",
+    justification = "Git clean can delete untracked project files. Review the command before running it.",
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "prompt",
+    justification = "Recursive deletion requires explicit approval.",
+)

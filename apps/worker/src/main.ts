@@ -11,7 +11,8 @@ async function bootstrap() {
   const config = getConfig();
   const logger = createLogger({ name: config.WORKER_NAME });
 
-  await NestFactory.createApplicationContext(AppModule);
+  const app = await NestFactory.createApplicationContext(AppModule);
+  app.enableShutdownHooks();
   logger.info('Worker started');
 }
 

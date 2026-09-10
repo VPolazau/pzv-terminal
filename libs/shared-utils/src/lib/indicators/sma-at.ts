@@ -3,8 +3,8 @@ export function smaAt(
   period: number,
   index: number,
 ): number | null {
-  if (!Number.isFinite(period) || period <= 0) return null;
-  if (index < period - 1) return null;
+  if (!Number.isInteger(period) || period <= 0) return null;
+  if (!Number.isInteger(index) || index < period - 1) return null;
   if (index >= values.length) return null;
 
   let sum = 0;

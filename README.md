@@ -2,6 +2,9 @@
 
 Монорепа для server + worker + shared libs.
 
+Текущий market flow, live SMA, Redis state и retry Telegram описаны в
+[docs/live-signals.md](docs/live-signals.md).
+
 ## Стек
 
 - Nx
@@ -16,26 +19,26 @@
 
 ## Локальный запуск
 
-### 1. Поднять Redis
-
-```bash
-pnpm infra:up
-```
-
-### 2. Установить зависимости
+### 1. Установить зависимости
 
 ```bash
 pnpm install
 ```
 
-### 3. Создать локальный env
+### 2. Создать локальный env
 
 Скопируй .env.example в .env.local
 
-### 4. Запуск
+### 3. Запуск
 
 ```bash
 pnpm dev
+```
+
+### 4. Поднять Redis
+
+```bash
+pnpm infra:up
 ```
 
 ## Полезные команды

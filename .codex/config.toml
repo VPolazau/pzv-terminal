@@ -1,0 +1,13 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "cached"
+model_reasoning_effort = "high"
+
+[shell_environment_policy]
+ignore_default_excludes = false
+
+[features]
+memories = true
+
+[permissions.project-edit.filesystem.":workspace_roots"]
+".env.local" = "deny"

@@ -21,7 +21,7 @@
     "test": "nx run-many -t test --all",
     "e2e:server": "nx run server-e2e:e2e",
     "reset": "nx reset",
-    "reset-markets": "pnpm nx reset && docker exec -i pzv-redis redis-cli EVAL \"for _,k in ipairs(redis.call('KEYS', ARGV[1])) do redis.call('DEL', k) end return true\" 0 \"market:*\" && pnpm dev",
+    "reset-markets": "pnpm nx reset && docker exec -i pzv-redis redis-cli EVAL \"for _,k in ipairs(redis.call('KEYS', ARGV[1])) do redis.call('DEL', k) end return true\" 0 \"market:*\"",
     "graph": "nx graph",
     "projects": "nx show projects",
     "infra:up": "docker compose up -d",

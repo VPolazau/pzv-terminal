@@ -1,7 +1,9 @@
+import { MONITORING_STRATEGY as strategy } from '@pzv-terminal/core-config';
 import { Controller, Get, Query } from '@nestjs/common';
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
 import { connectRedis, getJson } from '@pzv-terminal/core-redis';
 import { smaAt } from '@pzv-terminal/shared-utils';
+import { parseSmaPeriod } from '../indicators/parse-sma-period';
 
 type CrossSignal = 'bull_cross' | 'bear_cross' | 'none';
 
@@ -9,13 +11,13 @@ type CrossSignal = 'bull_cross' | 'bear_cross' | 'none';
 export class SignalsController {
   @Get('sma-cross')
   async smaCross(
-    @Query('symbol') symbol = 'BTCUSDT',
-    @Query('tf') tf: Timeframe = '1m',
-    @Query('fast') fastStr = '10',
-    @Query('slow') slowStr = '50',
+    @Query('symbol') symbol: string = strategy.symbols[0],
+    @Query('tf') tf: Timeframe = strategy.timeframes[0],
+    @Query('fast') fastStr = String(strategy.fast),
+    @Query('slow') slowStr = String(strategy.slow),
   ) {
-    const fast = Math.max(1, Math.min(200, Number(fastStr) || 10));
-    const slow = Math.max(2, Math.min(500, Number(slowStr) || 50));
+    const fast = parseSmaPeriod(fastStr, 'fast', 1, 200);
+    const slow = parseSmaPeriod(slowStr, 'slow', 2, 500);
 
     const redis = await connectRedis();
     const candles =
@@ -47,6 +49,13 @@ export class SignalsController {
       fast,
       slow,
       signal,
+      action:
+        signal === 'bull_cross'
+          ? 'BUY'
+          : signal === 'bear_cross'
+            ? 'SELL'
+            : null,
+      mode: 'closed' as const,
       now: { fast: nowFast, slow: nowSlow },
       prev: { fast: prevFast, slow: prevSlow },
       candlesCount: candles.length,
