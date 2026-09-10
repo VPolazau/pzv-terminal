@@ -33,7 +33,7 @@ export async function syncBinanceCandles(params: {
     throw new Error('Invalid Binance history limit');
   const step = timeframeMs(tf);
   const currentOpen = Math.floor(serverTime / step) * step;
-  // The whole retained window fits in one REST request (currently 200).
+  // The whole retained window fits in one REST request (up to 1000).
   // Authoritative replacement also repairs old live snapshots and mixed sources.
   const fetched = await fetchBinanceKlines({
     symbol,

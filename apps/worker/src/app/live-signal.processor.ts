@@ -7,6 +7,7 @@ import type {
 } from '@pzv-terminal/shared-types';
 import type { RedisClientType } from 'redis';
 import { getJson } from '@pzv-terminal/core-redis';
+import { MONITORING_STRATEGY } from '@pzv-terminal/core-config';
 import { liveSmaTransition, timeframeMs } from '@pzv-terminal/shared-utils';
 import {
   notificationRecipients,
@@ -15,7 +16,8 @@ import {
 } from './notification-delivery';
 
 export function liveStateKey(symbol: string, tf: Timeframe): string {
-  return `signals:live_state:sma_cross:binance:${symbol}:${tf}:10:50`;
+  const { fast, slow } = MONITORING_STRATEGY;
+  return `signals:live_state:sma_cross:binance:${symbol}:${tf}:${fast}:${slow}`;
 }
 
 export async function processLiveObservation(params: {
@@ -31,11 +33,12 @@ export async function processLiveObservation(params: {
     params;
   const key = liveStateKey(symbol, tf);
   const previous = await getJson<LiveSmaState>(redis, key);
+  const { fast, slow } = MONITORING_STRATEGY;
   const result = liveSmaTransition({
     closedCloses: candles.map((c) => c.close),
     price,
-    fast: 10,
-    slow: 50,
+    fast,
+    slow,
     observedAt,
     previous,
   });
@@ -50,9 +53,10 @@ export async function processLiveObservation(params: {
       source: 'binance',
       symbol,
       tf,
-      fast: 10,
-      slow: 50,
+      fast,
+      slow,
       signal: result.signal,
+      action: result.signal === 'bull_cross' ? 'BUY' : 'SELL',
       price,
       ts: observedAt,
       observedAt,

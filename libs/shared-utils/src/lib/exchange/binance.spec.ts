@@ -81,3 +81,41 @@ describe('Binance REST adapter', () => {
     ).rejects.toThrow('Invalid Binance');
   });
 });
+
+describe('daily Binance data and rate-limit response', () => {
+  afterEach(() => jest.restoreAllMocks());
+  it('maps UTC 1d boundaries correctly', async () => {
+    const start = 86400000;
+    const request = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            [start, '100', '110', '90', '105', '1', start + 86400000 - 1],
+          ]),
+        ),
+      );
+    expect(
+      await fetchBinanceKlines({ symbol: 'ETHUSDT', tf: '1d', limit: 300 }),
+    ).toEqual([
+      expect.objectContaining({
+        symbol: 'ETHUSDT',
+        tf: '1d',
+        openTime: start,
+        closeTime: start + 86400000 - 1,
+      }),
+    ]);
+    expect(request.mock.calls[0][0]).toContain('interval=1d&limit=300');
+  });
+  it('preserves Retry-After for the runner to back off', async () => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response('{}', { status: 429, headers: { 'Retry-After': '7' } }),
+      );
+    await expect(fetchBinancePrice('BTCUSDT')).rejects.toMatchObject({
+      status: 429,
+      retryAfterMs: 7000,
+    });
+  });
+});

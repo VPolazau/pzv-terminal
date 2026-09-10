@@ -133,3 +133,44 @@ describe('Binance closed history', () => {
     );
   });
 });
+
+describe('300-candle daily window', () => {
+  beforeEach(() => jest.clearAllMocks());
+  it.each(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'TAOUSDT'])(
+    'restores closed 1d history for %s and preserves it if the next fetch fails',
+    async (symbol) => {
+      const memory = memoryRedis();
+      const expected = Array.from({ length: 300 }, (_, i) =>
+        candle(i + 100, '1d', 100, symbol),
+      );
+      fetchKlines.mockResolvedValue([
+        ...expected,
+        candle(400, '1d', 110, symbol),
+      ]);
+      const params = {
+        redis: memory.redis,
+        symbol,
+        tf: '1d' as const,
+        limit: 300,
+        ttlSeconds: 86400,
+        serverTime: 400 * 86400000 + 1000,
+      };
+      expect(await syncBinanceCandles(params)).toEqual(expected);
+      expect(fetchKlines).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startTime: 100 * 86400000,
+          endTime: 400 * 86400000 - 1,
+          limit: 300,
+          tf: '1d',
+          symbol,
+        }),
+      );
+      const saved = memory.strings.get(candlesKey(symbol, '1d'));
+      fetchKlines.mockRejectedValueOnce(new Error('temporary'));
+      await expect(
+        syncBinanceCandles({ ...params, serverTime: 401 * 86400000 }),
+      ).rejects.toThrow('temporary');
+      expect(memory.strings.get(candlesKey(symbol, '1d'))).toBe(saved);
+    },
+  );
+});

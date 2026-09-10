@@ -1,7 +1,16 @@
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
 
 export function timeframeMs(tf: Timeframe): number {
-  return tf === '1m' ? 60_000 : 4 * 60 * 60_000;
+  return { '1m': 60_000, '4h': 4 * 60 * 60_000, '1d': 24 * 60 * 60_000 }[tf];
+}
+
+export class BinanceHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly retryAfterMs: number,
+  ) {
+    super(`Binance request failed: ${status}`);
+  }
 }
 
 async function request(path: string, baseUrl?: string): Promise<unknown> {
@@ -13,8 +22,19 @@ async function request(path: string, baseUrl?: string): Promise<unknown> {
   const res = await fetch(`${base}/api/v3/${path}`, {
     signal: AbortSignal.timeout(5_000),
   });
-  if (!res.ok)
-    throw new Error(`Binance ${path.split('?')[0]} failed: ${res.status}`);
+  if (!res.ok) {
+    const retryAfter = Number(res.headers.get('retry-after'));
+    throw new BinanceHttpError(
+      res.status,
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : res.status === 418
+          ? 120_000
+          : res.status === 429
+            ? 5_000
+            : 0,
+    );
+  }
   return res.json();
 }
 

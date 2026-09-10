@@ -42,7 +42,9 @@ export function pendingNotification(
 }
 
 export function notificationText(event: SignalEvent): string {
-  const heading = `${event.signal === 'bull_cross' ? '🟢' : '🔴'} SMA cross ${event.mode === 'live' ? 'LIVE / INTRABAR' : 'CLOSED (mock)'}`;
+  const action =
+    event.action ?? (event.signal === 'bull_cross' ? 'BUY' : 'SELL');
+  const heading = `${action === 'BUY' ? '🟢' : '🔴'} ${action} — SMA${event.fast} crossed SMA${event.slow} — ${event.mode === 'live' ? 'LIVE / INTRABAR' : 'CLOSED (mock)'}`;
   const lines = [
     heading,
     `Symbol: ${event.symbol}`,
@@ -53,11 +55,15 @@ export function notificationText(event: SignalEvent): string {
   if (event.mode === 'live') {
     lines.push(
       `Price: ${event.price}`,
+      `SMA${event.slow}: ${event.now.slow}`,
       `Observed: ${new Date(event.observedAt).toISOString()}`,
       `Detected: ${new Date(event.detectedAt).toISOString()}`,
+      `Candle: ${new Date(event.candleOpenTime).toISOString()} → ${new Date(event.candleCloseTime).toISOString()} (forming)`,
       `Event: ${event.id}`,
     );
   } else lines.push(`Candle close: ${new Date(event.ts).toISOString()}`);
+  if (event.suggestedStopLoss !== undefined)
+    lines.push(`Suggested SL: ${event.suggestedStopLoss}`);
   return lines.join('\n');
 }
 

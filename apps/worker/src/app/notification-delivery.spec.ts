@@ -9,6 +9,7 @@ import {
   pendingNotification,
   pendingNotificationsKey,
   notificationRecipients,
+  notificationText,
 } from './notification-delivery';
 
 jest.mock('@pzv-terminal/shared-utils', () => ({
@@ -202,4 +203,42 @@ describe('Telegram pending delivery', () => {
       send.mock.calls.map(([args]) => args.text.match(/Signal: (\w+)/)?.[1]),
     ).toEqual(['bull_cross', 'bull_cross', 'bear_cross', 'bull_cross']);
   });
+});
+
+describe('BUY/SELL live notification content', () => {
+  it.each(['BUY', 'SELL'] as const)(
+    'shows %s, market price, SMA238 and forming candle context',
+    (action) => {
+      const next = {
+        ...event,
+        action,
+        signal:
+          action === 'BUY' ? ('bull_cross' as const) : ('bear_cross' as const),
+        fast: 1,
+        slow: 238,
+        tf: '1d' as const,
+        symbol: 'TAOUSDT',
+      };
+      const text = notificationText(next);
+      for (const value of [
+        action,
+        'TAOUSDT',
+        'TF: 1d',
+        'SMA1 crossed SMA238',
+        'LIVE / INTRABAR',
+        `Price: ${next.price}`,
+        `SMA238: ${next.now.slow}`,
+        'Observed:',
+        'Detected:',
+        'Candle:',
+        '(forming)',
+        next.id,
+      ])
+        expect(text).toContain(value);
+      expect(text).not.toContain('Suggested SL:');
+      expect(notificationText({ ...next, suggestedStopLoss: 95 })).toContain(
+        'Suggested SL: 95',
+      );
+    },
+  );
 });

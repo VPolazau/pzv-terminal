@@ -1,3 +1,4 @@
+import { MONITORING_STRATEGY as strategy } from '@pzv-terminal/core-config';
 import { Controller, Get, Inject, Query } from '@nestjs/common';
 import type { SignalEvent, Timeframe } from '@pzv-terminal/shared-types';
 import { getJson } from '@pzv-terminal/core-redis';
@@ -10,8 +11,8 @@ export class LastSignalsController {
 
   @Get('last')
   async last(
-    @Query('symbol') symbol = 'BTCUSDT',
-    @Query('tf') tf: Timeframe = '1m',
+    @Query('symbol') symbol: string = strategy.symbols[0],
+    @Query('tf') tf: Timeframe = strategy.timeframes[0],
   ): Promise<SignalEvent | null> {
     const s = String(symbol).trim().toUpperCase();
     const key = `signals:last:sma_cross:${s}:${tf}`;
