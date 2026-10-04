@@ -7,7 +7,20 @@ import {
   type ISeriesApi,
   type CandlestickData,
   type UTCTimestamp,
+  type ISeriesPrimitive,
+  type IPrimitivePaneView,
+  type IPrimitivePaneRenderer,
+  type SeriesAttachedParameter,
 } from 'lightweight-charts';
+type CanvasRenderingTarget2D = {
+  useBitmapCoordinateSpace: (
+    callback: (scope: {
+      context: CanvasRenderingContext2D;
+      horizontalPixelRatio: number;
+      verticalPixelRatio: number;
+    }) => void,
+  ) => void;
+};
 import type { Candle } from './api/market.api';
 import type { LiveSignalRecord } from './api/signals.api';
 import type { SignalEvent } from './signal-events';
@@ -27,6 +40,94 @@ const steps: Record<string, number> = {
   '1d': 86400000,
 };
 
+export function normalizeRectangle(
+  x1: number,
+  x2: number,
+  y1: number,
+  y2: number,
+) {
+  return {
+    left: Math.min(x1, x2),
+    right: Math.max(x1, x2),
+    top: Math.min(y1, y2),
+    bottom: Math.max(y1, y2),
+  };
+}
+
+class TradeRectanglePrimitive implements ISeriesPrimitive<UTCTimestamp> {
+  private requestUpdate?: () => void;
+  private attachedContext?: SeriesAttachedParameter<
+    UTCTimestamp,
+    'Candlestick'
+  >;
+  private view: IPrimitivePaneView;
+  constructor(private trade: SignalEvent | null) {
+    this.view = { renderer: () => this.renderer() };
+  }
+  attached(context: SeriesAttachedParameter<UTCTimestamp, 'Candlestick'>) {
+    this.attachedContext = context;
+    this.requestUpdate = context.requestUpdate;
+  }
+  detached() {
+    this.attachedContext = undefined;
+  }
+  paneViews() {
+    return [this.view];
+  }
+  setTrade(trade: SignalEvent | null) {
+    this.trade = trade;
+    this.requestUpdate?.();
+  }
+  private renderer(): IPrimitivePaneRenderer | null {
+    const trade = this.trade;
+    const attached = this.attachedContext;
+    if (
+      !trade ||
+      trade.source !== 'HISTORICAL' ||
+      trade.entryTime === undefined ||
+      trade.exitTime === undefined ||
+      trade.entryPrice === undefined ||
+      trade.exitPrice === undefined
+    )
+      return null;
+    const entryTime = trade.entryTime;
+    const exitTime = trade.exitTime;
+    const entryPrice = trade.entryPrice;
+    const exitPrice = trade.exitPrice;
+    return {
+      draw: (target: CanvasRenderingTarget2D) => {
+        target.useBitmapCoordinateSpace((scope) => {
+          const x1 = attached.chart
+            .timeScale()
+            .timeToCoordinate(Math.floor(entryTime / 1000) as UTCTimestamp);
+          const x2 = attached.chart
+            .timeScale()
+            .timeToCoordinate(Math.floor(exitTime / 1000) as UTCTimestamp);
+          const y1 = attached.series.priceToCoordinate(entryPrice);
+          const y2 = attached.series.priceToCoordinate(exitPrice);
+          if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+          const box = normalizeRectangle(x1, x2, y1, y2);
+          const ratio = scope.horizontalPixelRatio;
+          const top = box.top * scope.verticalPixelRatio;
+          const left = box.left * ratio;
+          const width = (box.right - box.left) * ratio;
+          const height = (box.bottom - box.top) * scope.verticalPixelRatio;
+          const positive = (trade.netPnl ?? trade.profit ?? 0) >= 0;
+          scope.context.fillStyle = positive
+            ? 'rgba(38, 166, 214, 0.16)'
+            : 'rgba(196, 61, 84, 0.16)';
+          scope.context.strokeStyle = positive
+            ? 'rgba(38, 140, 190, 0.65)'
+            : 'rgba(170, 50, 70, 0.65)';
+          scope.context.lineWidth = ratio;
+          scope.context.fillRect(left, top, width, height);
+          scope.context.strokeRect(left, top, width, height);
+        });
+      },
+    };
+  }
+}
+
 export default function MarketChart({
   candles,
   signals,
@@ -39,6 +140,7 @@ export default function MarketChart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const markerRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const primitiveRef = useRef<TradeRectanglePrimitive | null>(null);
   const candlesRef = useRef(candles);
   const signalsRef = useRef(signals);
   const savedRangeRef =
@@ -75,6 +177,9 @@ export default function MarketChart({
     chartRef.current = chart;
     seriesRef.current = series;
     markerRef.current = createSeriesMarkers(series);
+    const primitive = new TradeRectanglePrimitive(selectedSignal);
+    primitiveRef.current = primitive;
+    series.attachPrimitive(primitive);
     let loadingOlder = false;
     const onRange = async (range: { from: number; to: number } | null) => {
       if (
@@ -108,11 +213,16 @@ export default function MarketChart({
       observer.disconnect();
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
       chart.remove();
+      primitiveRef.current = null;
       chartRef.current = null;
       seriesRef.current = null;
       markerRef.current = null;
     };
   }, [onLoadOlder]);
+
+  useEffect(() => {
+    primitiveRef.current?.setTrade(selectedSignal);
+  }, [selectedSignal]);
 
   useEffect(() => {
     const series = seriesRef.current;
