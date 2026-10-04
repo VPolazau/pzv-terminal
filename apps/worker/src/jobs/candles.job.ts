@@ -9,14 +9,14 @@ function tfToMs(tf: Timeframe): number {
     switch (tf) {
       case '1m':
         return 60_000;
+      case '1h':
+        return 60 * 60_000;
       // case '5m':
       //   return 5 * 60_000;
       // case '15m':
       //   return 15 * 60_000;
       // case '45m':
       //   return 45 * 60_000;
-      // case '1h':
-      //   return 60 * 60_000;
       case '4h':
         return 4 * 60 * 60_000;
       case '1d':

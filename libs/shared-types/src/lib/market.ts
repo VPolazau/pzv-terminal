@@ -7,7 +7,7 @@ export type Ticker = {
   source: 'mock' | 'binance' | 'mexc' | 'bybit';
 };
 
-export type Timeframe = '1m' | '4h' | '1d';
+export type Timeframe = '1m' | '1h' | '4h' | '1d';
 
 export type Candle = {
   symbol: Symbol;

@@ -3,6 +3,8 @@ import type { RedisClientType } from 'redis';
 import { REDIS } from '../redis/redis.module';
 import { getJson } from '@pzv-terminal/core-redis';
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
+import { fetchBinanceHistoricalKlines } from '@pzv-terminal/shared-utils';
+import { parseHistoryRange } from './parse-history-range';
 
 @Controller('market')
 export class MarketController {
@@ -19,5 +21,16 @@ export class MarketController {
     const candles = (await getJson<Candle[]>(this.redis, key)) ?? [];
     const n = Math.max(1, Math.min(Number(limit) || 200, candles.length));
     return candles.slice(-n);
+  }
+
+  @Get('candles/history')
+  async candlesHistory(
+    @Query('symbol') symbol?: string,
+    @Query('tf') tf?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<Candle[]> {
+    const range = parseHistoryRange({ symbol, tf, from, to });
+    return fetchBinanceHistoricalKlines(range);
   }
 }

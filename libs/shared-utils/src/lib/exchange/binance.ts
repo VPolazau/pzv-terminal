@@ -1,8 +1,15 @@
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
 
 export function timeframeMs(tf: Timeframe): number {
-  return { '1m': 60_000, '4h': 4 * 60 * 60_000, '1d': 24 * 60 * 60_000 }[tf];
+  return {
+    '1m': 60_000,
+    '1h': 60 * 60_000,
+    '4h': 4 * 60 * 60_000,
+    '1d': 24 * 60 * 60_000,
+  }[tf];
 }
+
+export const BINANCE_KLINES_PAGE_LIMIT = 1000;
 
 export class BinanceHttpError extends Error {
   constructor(
@@ -118,4 +125,58 @@ export async function fetchBinanceKlines(params: {
     }
     return candle;
   });
+}
+
+export async function fetchBinanceHistoricalKlines(params: {
+  baseUrl?: string;
+  symbol: string;
+  tf: Timeframe;
+  from: number;
+  to: number;
+}): Promise<Candle[]> {
+  const { symbol, tf, from, to, baseUrl } = params;
+  if (
+    !Number.isSafeInteger(from) ||
+    !Number.isSafeInteger(to) ||
+    from < 0 ||
+    to <= from
+  ) {
+    throw new Error('Invalid Binance history range');
+  }
+
+  const step = timeframeMs(tf);
+  const now = Date.now();
+  const byOpenTime = new Map<number, Candle>();
+  let cursor = from;
+
+  while (cursor < to) {
+    const page = await fetchBinanceKlines({
+      baseUrl,
+      symbol,
+      tf,
+      limit: BINANCE_KLINES_PAGE_LIMIT,
+      startTime: cursor,
+      endTime: to - 1,
+    });
+    if (page.length === 0) break;
+
+    let lastOpenTime = cursor;
+    for (const candle of page) {
+      if (
+        candle.openTime < from ||
+        candle.openTime >= to ||
+        candle.closeTime >= now
+      )
+        continue;
+      byOpenTime.set(candle.openTime, candle);
+      lastOpenTime = Math.max(lastOpenTime, candle.openTime);
+    }
+
+    const nextCursor = lastOpenTime + step;
+    if (nextCursor <= cursor) break;
+    cursor = nextCursor;
+    if (page.length < BINANCE_KLINES_PAGE_LIMIT) break;
+  }
+
+  return [...byOpenTime.values()].sort((a, b) => a.openTime - b.openTime);
 }
