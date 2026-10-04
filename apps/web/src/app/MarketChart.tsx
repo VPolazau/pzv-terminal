@@ -171,6 +171,28 @@ export default function MarketChart({
         } as const;
       });
     markerApi.setMarkers(markers);
+    if (selectedSignal) {
+      const stepMs = steps[timeframe] ?? 3600000;
+      const target = Math.floor(selectedSignal.timestamp / stepMs) * stepMs;
+      const targetSeconds = Math.floor(target / 1000) as UTCTimestamp;
+      const range =
+        selectedSignal.source === 'HISTORICAL' &&
+        selectedSignal.entryTime !== undefined &&
+        selectedSignal.exitTime !== undefined
+          ? {
+              from: Math.floor(
+                (selectedSignal.entryTime - stepMs) / 1000,
+              ) as UTCTimestamp,
+              to: Math.floor(
+                (selectedSignal.exitTime + stepMs) / 1000,
+              ) as UTCTimestamp,
+            }
+          : {
+              from: (targetSeconds - 20) as UTCTimestamp,
+              to: (targetSeconds + 20) as UTCTimestamp,
+            };
+      requestAnimationFrame(() => chart.timeScale().setVisibleRange(range));
+    }
     if (!chartRef.current?.timeScale().getVisibleLogicalRange())
       chart.timeScale().fitContent();
   }, [candles, signals, events, selectedSignal, timeframe]);

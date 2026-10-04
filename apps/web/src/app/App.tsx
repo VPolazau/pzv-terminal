@@ -83,6 +83,12 @@ export default function App() {
         fee: trade.entryFee,
         profit: null,
         source: 'HISTORICAL' as const,
+        tradeId: `HIST:${trade.sequence}`,
+        entryTime: trade.entryTime,
+        exitTime: trade.exitTime,
+        entryPrice: trade.entryPrice,
+        exitPrice: trade.exitPrice,
+        netPnl: trade.netPnl,
       },
       {
         id: `HIST:${trade.sequence}:SELL`,
@@ -96,11 +102,17 @@ export default function App() {
         fee: trade.exitFee,
         profit: trade.netPnl,
         source: 'HISTORICAL' as const,
+        tradeId: `HIST:${trade.sequence}`,
+        entryTime: trade.entryTime,
+        exitTime: trade.exitTime,
+        entryPrice: trade.entryPrice,
+        exitPrice: trade.exitPrice,
+        netPnl: trade.netPnl,
       },
     ]);
     const seen = new Set<string>();
     return [...historical, ...live]
-      .sort((a, b) => a.time - b.time)
+      .sort((a, b) => b.time - a.time)
       .filter((row) => {
         const key = `${row.symbol}|${row.timeframe}|${row.action}|${row.time}`;
         if (seen.has(key)) return false;

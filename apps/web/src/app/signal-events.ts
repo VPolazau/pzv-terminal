@@ -9,4 +9,10 @@ export type SignalEvent = {
   source: 'LIVE' | 'HISTORICAL';
   fee: number | null;
   profit: number | null;
+  tradeId?: string;
+  entryTime?: number;
+  exitTime?: number;
+  entryPrice?: number;
+  exitPrice?: number;
+  netPnl?: number;
 };
