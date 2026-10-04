@@ -5,6 +5,7 @@ import type { RedisClientType } from 'redis';
 import { MONITORING_STRATEGY as strategy } from '@pzv-terminal/core-config';
 import { createLogger } from '@pzv-terminal/core-logger';
 import { closeRedis, connectRedis } from '@pzv-terminal/core-redis';
+import { LiveSignalHistoryRepository } from '@pzv-terminal/core-storage';
 import {
   BinanceHttpError,
   fetchBinancePrice,
@@ -27,6 +28,9 @@ type ActiveTimeframe = (typeof strategy.timeframes)[number];
 
 @Injectable()
 export class RunnerService implements OnModuleInit, OnModuleDestroy {
+  constructor(
+    private readonly signalHistory = new LiveSignalHistoryRepository(),
+  ) {}
   private readonly logger = createLogger({ name: 'worker' });
   private redis!: RedisClientType;
   private marketLoop?: SequentialLoop;
@@ -188,6 +192,7 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
             candles,
             ...observation,
             candleOpenTime: currentOpen,
+            signalHistory: this.signalHistory,
           });
           if (event)
             this.logger.info(
@@ -294,5 +299,6 @@ export class RunnerService implements OnModuleInit, OnModuleDestroy {
     // Stop scheduling first; let bounded in-flight HTTP calls finish, then close Redis.
     await Promise.all([this.marketLoop?.stop(), this.deliveryLoop?.stop()]);
     await closeRedis();
+    this.signalHistory.close();
   }
 }

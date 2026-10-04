@@ -62,3 +62,23 @@ export type LiveSignalEvent = Omit<ClosedSignalEvent, 'mode'> & {
 };
 
 export type SignalEvent = ClosedSignalEvent | LiveSignalEvent;
+
+export type LiveSignalRecord = {
+  id: string;
+  symbol: string;
+  tf: Timeframe;
+  action: 'BUY' | 'SELL';
+  signal: Exclude<SmaCrossSignal, 'none'>;
+  signalTime: number;
+  price: number;
+  createdAt: number;
+  strategyId: string;
+  fast: number;
+  slow: number;
+  observedAt: number;
+  detectedAt: number;
+  candleOpenTime: number;
+  candleCloseTime: number;
+  mode: 'live';
+  source: 'binance';
+};

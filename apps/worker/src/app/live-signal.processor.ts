@@ -9,11 +9,15 @@ import type { RedisClientType } from 'redis';
 import { getJson } from '@pzv-terminal/core-redis';
 import { MONITORING_STRATEGY } from '@pzv-terminal/core-config';
 import { liveSmaTransition, timeframeMs } from '@pzv-terminal/shared-utils';
+import type { LiveSignalHistoryRepository } from '@pzv-terminal/core-storage';
+import { createLogger } from '@pzv-terminal/core-logger';
 import {
   notificationRecipients,
   pendingNotification,
   pendingNotificationsKey,
 } from './notification-delivery';
+
+const historyLogger = createLogger({ name: 'live-signal-history' });
 
 export function liveStateKey(symbol: string, tf: Timeframe): string {
   const { fast, slow } = MONITORING_STRATEGY;
@@ -28,6 +32,7 @@ export async function processLiveObservation(params: {
   price: number;
   observedAt: number;
   candleOpenTime: number;
+  signalHistory?: LiveSignalHistoryRepository;
 }): Promise<LiveSignalEvent | null> {
   const { redis, symbol, tf, candles, price, observedAt, candleOpenTime } =
     params;
@@ -80,5 +85,15 @@ export async function processLiveObservation(params: {
   }
   // No advanced state without its pending notification (and vice versa).
   await transaction.exec();
+  if (event && params.signalHistory) {
+    try {
+      params.signalHistory.save(event);
+    } catch (error) {
+      historyLogger.error(
+        { err: error, id: event.id, symbol: event.symbol, tf: event.tf },
+        'Live signal history save failed; live processing continues',
+      );
+    }
+  }
   return event;
 }

@@ -1,0 +1,20 @@
+{
+  "name": "core-storage",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/core-storage/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/core-storage",
+        "main": "libs/core-storage/src/index.ts",
+        "tsConfig": "libs/core-storage/tsconfig.lib.json"
+      }
+    },
+    "test": {
+      "options": { "passWithNoTests": true }
+    }
+  }
+}

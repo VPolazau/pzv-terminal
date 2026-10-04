@@ -7,6 +7,9 @@ import { MarketController } from '../market/market.controller';
 import { IndicatorsController } from '../indicators/indicators.controller';
 import { SignalsController } from '../signals/signals.controller';
 import { LastSignalsController } from '../signals/last-signals.controller';
+import { LiveSignalHistoryController } from '../signals/live-signal-history.controller';
+import { LiveSignalHistoryService } from '../signals/live-signal-history.service';
+import { LiveSignalHistoryRepository } from '@pzv-terminal/core-storage';
 import { SubscriptionsController } from '../subscriptions/subscriptions.controller';
 import { RedisModule } from '../redis/redis.module';
 import { HistoricalCandleRepository } from '../market/historical-candle.repository';
@@ -24,6 +27,7 @@ import { BacktestService } from '../backtest/backtest.service';
     IndicatorsController,
     SignalsController,
     LastSignalsController,
+    LiveSignalHistoryController,
     SubscriptionsController,
     BacktestController,
   ],
@@ -35,6 +39,11 @@ import { BacktestService } from '../backtest/backtest.service';
     },
     HistoricalCandleService,
     BacktestService,
+    {
+      provide: LiveSignalHistoryRepository,
+      useFactory: () => new LiveSignalHistoryRepository(),
+    },
+    LiveSignalHistoryService,
   ],
 })
 export class AppModule {}

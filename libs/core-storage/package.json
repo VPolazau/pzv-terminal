@@ -1,0 +1,13 @@
+{
+  "name": "@pzv-terminal/core-storage",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "better-sqlite3": "11.10.0",
+    "tslib": "^2.3.0",
+    "@pzv-terminal/shared-types": "0.0.1"
+  }
+}
