@@ -10,6 +10,7 @@ export function timeframeMs(tf: Timeframe): number {
 }
 
 export const BINANCE_KLINES_PAGE_LIMIT = 1000;
+export const BINANCE_REQUEST_TIMEOUT_MS = 15_000;
 
 export class BinanceHttpError extends Error {
   constructor(
@@ -26,23 +27,35 @@ async function request(path: string, baseUrl?: string): Promise<unknown> {
     process.env['BINANCE_BASE_URL'] ??
     'https://api.binance.com'
   ).replace(/\/$/, '');
-  const res = await fetch(`${base}/api/v3/${path}`, {
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!res.ok) {
-    const retryAfter = Number(res.headers.get('retry-after'));
-    throw new BinanceHttpError(
-      res.status,
-      Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : res.status === 418
-          ? 120_000
-          : res.status === 429
-            ? 5_000
-            : 0,
-    );
+  const timeoutMs = Number(process.env['BINANCE_REQUEST_TIMEOUT_MS']);
+  const requestTimeout =
+    Number.isFinite(timeoutMs) && timeoutMs >= 1_000 && timeoutMs <= 60_000
+      ? timeoutMs
+      : BINANCE_REQUEST_TIMEOUT_MS;
+  // Create a fresh signal for every request. Never reuse one across symbols/pages.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeout);
+  try {
+    const res = await fetch(`${base}/api/v3/${path}`, {
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const retryAfter = Number(res.headers.get('retry-after'));
+      throw new BinanceHttpError(
+        res.status,
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : res.status === 418
+            ? 120_000
+            : res.status === 429
+              ? 5_000
+              : 0,
+      );
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 function toNumber(value: unknown): number {

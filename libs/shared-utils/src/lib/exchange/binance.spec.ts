@@ -40,6 +40,21 @@ describe('Binance REST adapter', () => {
       .mockResolvedValue(new Response(JSON.stringify({ serverTime: 123456 })));
     expect(await fetchBinanceTime()).toBe(123456);
   });
+  it('creates an isolated abort signal for concurrent requests', async () => {
+    const signals: AbortSignal[] = [];
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      signals.push(init?.signal as AbortSignal);
+      return new Response(
+        JSON.stringify({ symbol: 'BTCUSDT', price: '123.45' }),
+      );
+    });
+    await Promise.all([
+      fetchBinancePrice('BTCUSDT'),
+      fetchBinancePrice('BTCUSDT'),
+    ]);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).not.toBe(signals[1]);
+  });
   it('maps OHLCV and sends explicit history range', async () => {
     const fetchMock = jest
       .spyOn(globalThis, 'fetch')
