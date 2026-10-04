@@ -209,6 +209,11 @@ th {
   color: #71809a;
   background: #f8fafc;
 }
+.market-chart {
+  flex-basis: 100%;
+  min-height: 420px;
+  width: 100%;
+}
 @media (max-width: 800px) {
   .filters,
   .grid.two {

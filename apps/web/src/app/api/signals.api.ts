@@ -17,3 +17,20 @@ export function getSignalHistory(symbol: string, tf: string) {
     `/signals/history?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=100&order=DESC`,
   );
 }
+
+export function getSignalHistoryRange(
+  symbol: string,
+  tf: string,
+  from: string,
+  to: string,
+) {
+  const params = new URLSearchParams({
+    symbol,
+    tf,
+    from,
+    to,
+    limit: '500',
+    order: 'ASC',
+  });
+  return request<LiveSignalRecord[]>(`/signals/history?${params.toString()}`);
+}

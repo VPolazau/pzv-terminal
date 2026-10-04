@@ -1,7 +1,14 @@
-import { useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useBacktest, useLatestSignal, useSignalHistory } from './hooks';
 import type { BacktestError } from './api/backtest.api';
+import { getHistoricalCandles, type Candle } from './api/market.api';
+import {
+  getSignalHistoryRange,
+  type LiveSignalRecord,
+} from './api/signals.api';
+
+const MarketChart = lazy(() => import('./MarketChart'));
 
 const symbols = ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'TAOUSDT'];
 const timeframes = ['4h', '1d'];
@@ -114,24 +121,101 @@ export default function App() {
           </div>
         )}
       </section>
-      <section className="card chart-card">
-        <div>
-          <span className="eyebrow">Market data</span>
-          <h2>Market chart</h2>
-          <p className="muted">
-            Interactive candles and indicators will load here.
-          </p>
-        </div>
-        <button className="secondary" onClick={() => setChartOpen((x) => !x)}>
-          {chartOpen ? 'Close chart' : 'Open chart'}
-        </button>
-        {chartOpen && (
-          <div className="chart-placeholder">
-            Interactive chart will load here
-          </div>
-        )}
-      </section>
+      <ChartSection
+        open={chartOpen}
+        onToggle={() => setChartOpen((x) => !x)}
+        symbol={symbol}
+        timeframe={timeframe}
+        from={from}
+        to={to}
+      />
     </main>
+  );
+}
+
+function ChartSection({
+  open,
+  onToggle,
+  symbol,
+  timeframe,
+  from,
+  to,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  symbol: string;
+  timeframe: string;
+  from: string;
+  to: string;
+}) {
+  const [state, setState] = useState<{
+    candles: Candle[];
+    signals: LiveSignalRecord[];
+    loading: boolean;
+    error: Error | null;
+  }>({ candles: [], signals: [], loading: false, error: null });
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setState({ candles: [], signals: [], loading: true, error: null });
+    const rangeFrom = `${from}T00:00:00.000Z`;
+    const rangeTo = `${to}T00:00:00.000Z`;
+    Promise.all([
+      getHistoricalCandles(symbol, timeframe, rangeFrom, rangeTo),
+      getSignalHistoryRange(symbol, timeframe, rangeFrom, rangeTo),
+    ])
+      .then(
+        ([candles, signals]) =>
+          active && setState({ candles, signals, loading: false, error: null }),
+      )
+      .catch(
+        (error) =>
+          active &&
+          setState({
+            candles: [],
+            signals: [],
+            loading: false,
+            error:
+              error instanceof Error
+                ? error
+                : new Error('Chart data request failed'),
+          }),
+      );
+    return () => {
+      active = false;
+    };
+  }, [open, symbol, timeframe, from, to]);
+  return (
+    <section className="card chart-card">
+      <div>
+        <span className="eyebrow">Market data</span>
+        <h2>Market chart</h2>
+        <p className="muted">
+          Historical candles and real live signal markers.
+        </p>
+      </div>
+      <button className="secondary" onClick={onToggle}>
+        {open ? 'Close chart' : 'Open chart'}
+      </button>
+      {open &&
+        (state.loading ? (
+          <div className="chart-placeholder">Loading chart data…</div>
+        ) : state.error ? (
+          <div className="chart-placeholder error">{state.error.message}</div>
+        ) : !state.candles.length ? (
+          <div className="chart-placeholder">No candles for this period.</div>
+        ) : (
+          <Suspense
+            fallback={<div className="chart-placeholder">Loading chart…</div>}
+          >
+            <MarketChart
+              candles={state.candles}
+              signals={state.signals}
+              timeframe={timeframe}
+            />
+          </Suspense>
+        ))}
+    </section>
   );
 }
 
