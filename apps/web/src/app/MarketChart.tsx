@@ -277,7 +277,6 @@ export default function MarketChart({
           color: signal?.action === 'BUY' ? '#198754' : '#c43d54',
           shape: signal?.action === 'BUY' ? 'arrowUp' : 'arrowDown',
           text: `${signal?.action ?? ''} · ${signal?.source === 'HISTORICAL' ? 'H' : 'L'}`,
-          size: signal?.id === selectedSignal?.id ? 2 : 1,
         } as const;
       });
     markerApi.setMarkers(markers);
@@ -285,21 +284,26 @@ export default function MarketChart({
       const stepMs = steps[timeframe] ?? 3600000;
       const target = Math.floor(selectedSignal.timestamp / stepMs) * stepMs;
       const targetSeconds = Math.floor(target / 1000) as UTCTimestamp;
+      const minimumWindow = stepMs * 40;
       const range =
         selectedSignal.source === 'HISTORICAL' &&
         selectedSignal.entryTime !== undefined &&
         selectedSignal.exitTime !== undefined
           ? {
               from: Math.floor(
-                (selectedSignal.entryTime - stepMs) / 1000,
+                (Math.min(selectedSignal.entryTime, selectedSignal.exitTime) -
+                  Math.max(stepMs, minimumWindow / 2)) /
+                  1000,
               ) as UTCTimestamp,
               to: Math.floor(
-                (selectedSignal.exitTime + stepMs) / 1000,
+                (Math.max(selectedSignal.entryTime, selectedSignal.exitTime) +
+                  Math.max(stepMs, minimumWindow / 2)) /
+                  1000,
               ) as UTCTimestamp,
             }
           : {
-              from: (targetSeconds - 20) as UTCTimestamp,
-              to: (targetSeconds + 20) as UTCTimestamp,
+              from: (targetSeconds - 20 * 60) as UTCTimestamp,
+              to: (targetSeconds + 20 * 60) as UTCTimestamp,
             };
       requestAnimationFrame(() => chart.timeScale().setVisibleRange(range));
     }

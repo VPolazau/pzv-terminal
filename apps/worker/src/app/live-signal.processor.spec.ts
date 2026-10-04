@@ -7,7 +7,7 @@ describe('persisted live transitions', () => {
     jest.replaceProperty(process, 'env', { RUNNER_MODE: 'subs' }),
   );
   afterEach(() => jest.restoreAllMocks());
-  it('initializes silently and atomically persists three distinct events in one candle', async () => {
+  it('initializes silently and allows only one event per candle', async () => {
     const memory = memoryRedis();
     memory.sMembers.mockResolvedValue(['subscriber']);
     const params = {
@@ -25,15 +25,15 @@ describe('persisted live transitions', () => {
       events.push(await processLiveObservation({ ...params, price }));
     expect(events.map((e) => e?.signal)).toEqual([
       'bull_cross',
-      'bear_cross',
-      'bull_cross',
+      undefined,
+      undefined,
     ]);
-    expect(new Set(events.map((e) => e?.id)).size).toBe(3);
-    expect(events.map((e) => e?.action)).toEqual(['BUY', 'SELL', 'BUY']);
+    expect(new Set(events.filter(Boolean).map((e) => e?.id)).size).toBe(1);
+    expect(events.map((e) => e?.action)).toEqual(['BUY', undefined, undefined]);
     expect(events[0]).toMatchObject({ fast: 1, slow: 238 });
     expect(
       Object.keys(memory.hashes.get(pendingNotificationsKey) ?? {}),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
     expect(events[0]).toMatchObject({
       mode: 'live',
       source: 'binance',
@@ -124,7 +124,11 @@ describe('SMA1/238 stream identities', () => {
       await processLiveObservation({ ...inputs[0], price: 110 }),
     ).toBeNull();
     expect(
-      await processLiveObservation({ ...inputs[0], price: 90 }),
+      await processLiveObservation({
+        ...inputs[0],
+        price: 90,
+        candleOpenTime: inputs[0].candleOpenTime + 14_400_000,
+      }),
     ).toMatchObject({ action: 'SELL' });
     for (const p of inputs.slice(1)) {
       const event = await processLiveObservation({ ...p, price: 110 });

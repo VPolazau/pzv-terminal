@@ -91,6 +91,7 @@ export function runBacktest(
   let pending: { decision: 'BUY' | 'SELL'; signalTime: number } | null = null;
   let sequence = 0;
   const trades: BacktestTrade[] = [];
+  const executionCandles = new Set<number>();
   const equityCurve: EquityPoint[] = [
     { timestamp: config.from, equity: config.initialBalance },
   ];
@@ -100,7 +101,11 @@ export function runBacktest(
     const inEvaluationPeriod = candle.openTime >= config.from;
     if (!inEvaluationPeriod) continue;
     if (pending) {
-      if (pending.decision === 'BUY' && !position) {
+      if (
+        pending.decision === 'BUY' &&
+        !position &&
+        !executionCandles.has(candle.openTime)
+      ) {
         const entryPrice = candle.open * (1 + config.slippageRate);
         const quantity = quoteBalance / (entryPrice * (1 + config.feeRate));
         const entryFee = quantity * entryPrice * config.feeRate;
@@ -112,7 +117,12 @@ export function runBacktest(
           entryTime: candle.openTime,
         };
         quoteBalance = 0;
-      } else if (pending.decision === 'SELL' && position) {
+        executionCandles.add(candle.openTime);
+      } else if (
+        pending.decision === 'SELL' &&
+        position &&
+        !executionCandles.has(candle.openTime)
+      ) {
         const trade = closePosition(
           position,
           candle.open * (1 - config.slippageRate),
@@ -128,6 +138,7 @@ export function runBacktest(
           position.entryFee;
         trades.push(trade);
         position = null;
+        executionCandles.add(candle.openTime);
       }
       pending = null;
     }

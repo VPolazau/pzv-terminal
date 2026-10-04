@@ -37,7 +37,9 @@ export async function processLiveObservation(params: {
   const { redis, symbol, tf, candles, price, observedAt, candleOpenTime } =
     params;
   const key = liveStateKey(symbol, tf);
+  const executionKey = `signals:live_execution:${symbol}:${tf}:${candleOpenTime}`;
   const previous = await getJson<LiveSmaState>(redis, key);
+  const candleConsumed = await getJson<boolean>(redis, executionKey);
   const { fast, slow } = MONITORING_STRATEGY;
   const result = liveSmaTransition({
     closedCloses: candles.map((c) => c.close),
@@ -50,7 +52,7 @@ export async function processLiveObservation(params: {
   if (!result) return null;
   const transaction = redis.multi().set(key, JSON.stringify(result.state));
   let event: LiveSignalEvent | null = null;
-  if (result.signal !== 'none' && previous) {
+  if (result.signal !== 'none' && previous && !candleConsumed) {
     event = {
       id: randomUUID(),
       type: 'sma_cross',
@@ -82,6 +84,7 @@ export async function processLiveObservation(params: {
         event.id,
         JSON.stringify(pendingNotification(event.id, event, recipients)),
       );
+    transaction.set(executionKey, '1');
   }
   // No advanced state without its pending notification (and vice versa).
   await transaction.exec();
