@@ -13,7 +13,11 @@ import { LiveSignalHistoryRepository } from '@pzv-terminal/core-storage';
 import { SubscriptionsController } from '../subscriptions/subscriptions.controller';
 import { RedisModule } from '../redis/redis.module';
 import { HistoricalCandleRepository } from '../market/historical-candle.repository';
-import { HistoricalCandleService } from '../market/historical-candle.service';
+import {
+  HISTORICAL_CANDLE_FETCHER,
+  HistoricalCandleService,
+} from '../market/historical-candle.service';
+import { fetchBinanceHistoricalKlines } from '@pzv-terminal/shared-utils';
 import { BacktestController } from '../backtest/backtest.controller';
 import { BacktestService } from '../backtest/backtest.service';
 
@@ -38,6 +42,10 @@ import { BacktestService } from '../backtest/backtest.service';
       useFactory: () => new HistoricalCandleRepository(),
     },
     HistoricalCandleService,
+    {
+      provide: HISTORICAL_CANDLE_FETCHER,
+      useValue: fetchBinanceHistoricalKlines,
+    },
     BacktestService,
     {
       provide: LiveSignalHistoryRepository,

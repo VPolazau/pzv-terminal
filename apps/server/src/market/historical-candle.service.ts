@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { Candle, Timeframe } from '@pzv-terminal/shared-types';
 import {
   fetchBinanceHistoricalKlines,
@@ -13,10 +13,13 @@ type HistoricalFetcher = (params: {
   to: number;
 }) => Promise<Candle[]>;
 
+export const HISTORICAL_CANDLE_FETCHER = Symbol('HISTORICAL_CANDLE_FETCHER');
+
 @Injectable()
 export class HistoricalCandleService {
   constructor(
     private readonly repository: HistoricalCandleRepository,
+    @Inject(HISTORICAL_CANDLE_FETCHER)
     private readonly fetcher: HistoricalFetcher = fetchBinanceHistoricalKlines,
   ) {}
 

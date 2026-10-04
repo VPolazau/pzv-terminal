@@ -357,7 +357,7 @@ function LatestCard({
       ) : error ? (
         <ErrorState message={error.message} />
       ) : !data ? (
-        <Empty message="No signal received for this market yet." />
+        <Empty message="No live signal yet." />
       ) : (
         <div className="signal-detail">
           <span className={`signal-badge ${data.action.toLowerCase()}`}>

@@ -19,5 +19,8 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw error;
   }
 
-  return (await response.json()) as T;
+  if (response.status === 204 || response.headers.get('content-length') === '0')
+    return undefined as T;
+  const body = await response.text();
+  return (body.trim() ? JSON.parse(body) : undefined) as T;
 }

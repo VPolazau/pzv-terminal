@@ -1,4 +1,9 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Candle, ClosedSignalEvent } from '@pzv-terminal/shared-types';
 import type { RedisClientType } from 'redis';
@@ -29,6 +34,7 @@ type ActiveTimeframe = (typeof strategy.timeframes)[number];
 @Injectable()
 export class RunnerService implements OnModuleInit, OnModuleDestroy {
   constructor(
+    @Inject(LiveSignalHistoryRepository)
     private readonly signalHistory = new LiveSignalHistoryRepository(),
   ) {}
   private readonly logger = createLogger({ name: 'worker' });
