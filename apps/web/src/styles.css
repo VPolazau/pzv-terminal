@@ -14,6 +14,46 @@ body {
   margin: auto;
   padding: 32px 22px 56px;
 }
+@media (min-width: 801px) {
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .shell > .header,
+  .shell > .filters,
+  .shell > .grid.two {
+    flex: 0 0 auto;
+  }
+  .shell > .chart-card {
+    order: 4;
+    flex: 1 1 auto;
+    min-height: 300px;
+    overflow: hidden;
+  }
+  .shell > .history-panel {
+    order: 5;
+    flex: 0 0 250px;
+    min-height: 0;
+  }
+  .shell > .history-panel .table-wrap {
+    min-height: 0;
+    height: 185px;
+    overflow-y: auto;
+  }
+  .shell > .history-panel th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #fff;
+  }
+  .shell > .chart-card .market-chart {
+    min-height: 0;
+    height: 100%;
+  }
+}
 .header,
 .section-heading {
   display: flex;
@@ -188,6 +228,9 @@ th {
   gap: 20px;
   flex-wrap: wrap;
 }
+.history-panel {
+  min-height: 0;
+}
 .chart-card > div:first-child {
   flex: 1;
 }
@@ -215,6 +258,10 @@ th {
   width: 100%;
 }
 @media (max-width: 800px) {
+  .shell {
+    height: auto;
+    overflow: visible;
+  }
   .filters,
   .grid.two {
     grid-template-columns: 1fr;

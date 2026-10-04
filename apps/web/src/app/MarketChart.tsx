@@ -36,13 +36,22 @@ export default function MarketChart({
   const markerRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
   const candlesRef = useRef(candles);
   const signalsRef = useRef(signals);
+  const savedRangeRef =
+    useRef<
+      ReturnType<
+        IChartApi['timeScale']
+      >['getVisibleRange'] extends () => infer R
+        ? R
+        : never
+    >(null);
+  const restoringRef = useRef(false);
   candlesRef.current = candles;
   signalsRef.current = signals;
 
   useEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
-      height: 420,
+      height: container.current.clientHeight || 420,
       layout: { background: { color: '#ffffff' }, textColor: '#60708b' },
       grid: {
         vertLines: { color: '#edf0f5' },
@@ -66,20 +75,16 @@ export default function MarketChart({
       if (
         !range ||
         loadingOlder ||
+        restoringRef.current ||
         range.from > 3 ||
         !candlesRef.current.length
       )
         return;
       loadingOlder = true;
-      const visible = chart.timeScale().getVisibleLogicalRange();
+      savedRangeRef.current = chart.timeScale().getVisibleRange();
       try {
         const inserted = await onLoadOlder(candlesRef.current[0].openTime);
-        if (inserted > 0 && visible) {
-          chart.timeScale().setVisibleLogicalRange({
-            from: visible.from + inserted,
-            to: visible.to + inserted,
-          });
-        }
+        if (inserted === 0) savedRangeRef.current = null;
       } finally {
         loadingOlder = false;
       }
@@ -87,7 +92,10 @@ export default function MarketChart({
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
     const resize = () =>
       container.current &&
-      chart.applyOptions({ width: container.current.clientWidth });
+      chart.applyOptions({
+        width: container.current.clientWidth,
+        height: container.current.clientHeight || 420,
+      });
     const observer = new ResizeObserver(resize);
     observer.observe(container.current);
     resize();
@@ -115,6 +123,15 @@ export default function MarketChart({
       close: c.close,
     }));
     series.setData(data);
+    if (savedRangeRef.current) {
+      restoringRef.current = true;
+      const range = savedRangeRef.current;
+      savedRangeRef.current = null;
+      requestAnimationFrame(() => {
+        chart.timeScale().setVisibleRange(range);
+        restoringRef.current = false;
+      });
+    }
     const step = steps[timeframe] ?? 3600000;
     const candleTimes = new Set(sorted.map((c) => c.openTime));
     const seen = new Set<number>();

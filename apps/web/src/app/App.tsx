@@ -157,7 +157,7 @@ export default function App() {
         />
         <BacktestCard {...backtest} from={from} to={to} />
       </section>
-      <section className="card">
+      <section className="card history-panel">
         <Heading
           eyebrow="Live data"
           title="Signal history"
