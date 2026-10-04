@@ -3,6 +3,8 @@ import {
   CandlestickSeries,
   createChart,
   createSeriesMarkers,
+  type IChartApi,
+  type ISeriesApi,
   type CandlestickData,
   type UTCTimestamp,
 } from 'lightweight-charts';
@@ -13,6 +15,7 @@ type Props = {
   candles: Candle[];
   signals: LiveSignalRecord[];
   timeframe: string;
+  onLoadOlder: (oldest: number) => Promise<number>;
 };
 const steps: Record<string, number> = {
   '1m': 60000,
@@ -21,8 +24,21 @@ const steps: Record<string, number> = {
   '1d': 86400000,
 };
 
-export default function MarketChart({ candles, signals, timeframe }: Props) {
+export default function MarketChart({
+  candles,
+  signals,
+  timeframe,
+  onLoadOlder,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const markerRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const candlesRef = useRef(candles);
+  const signalsRef = useRef(signals);
+  candlesRef.current = candles;
+  signalsRef.current = signals;
+
   useEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
@@ -42,37 +58,26 @@ export default function MarketChart({ candles, signals, timeframe }: Props) {
       wickUpColor: '#2da66f',
       wickDownColor: '#d85a6e',
     });
-    const sorted = [...candles].sort((a, b) => a.openTime - b.openTime);
-    const data: CandlestickData<UTCTimestamp>[] = sorted.map((candle) => ({
-      time: Math.floor(candle.openTime / 1000) as UTCTimestamp,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-    }));
-    series.setData(data);
-    const step = steps[timeframe] ?? 3600000;
-    const candleTimes = new Set(sorted.map((candle) => candle.openTime));
-    const markers = signals
-      .map((signal) => Math.floor(signal.signalTime / step) * step)
-      .filter(
-        (time, index, all) =>
-          candleTimes.has(time) && all.indexOf(time) === index,
+    chartRef.current = chart;
+    seriesRef.current = series;
+    markerRef.current = createSeriesMarkers(series);
+    let loadingOlder = false;
+    const onRange = async (range: { from: number; to: number } | null) => {
+      if (
+        !range ||
+        loadingOlder ||
+        range.from > 3 ||
+        !candlesRef.current.length
       )
-      .map((time) => {
-        const signal = signals.find(
-          (item) => Math.floor(item.signalTime / step) * step === time,
-        );
-        return {
-          time: Math.floor(time / 1000) as UTCTimestamp,
-          position: signal?.action === 'BUY' ? 'belowBar' : 'aboveBar',
-          color: signal?.action === 'BUY' ? '#198754' : '#c43d54',
-          shape: signal?.action === 'BUY' ? 'arrowUp' : 'arrowDown',
-          text: signal?.action,
-        } as const;
-      });
-    createSeriesMarkers(series, markers);
-    chart.timeScale().fitContent();
+        return;
+      loadingOlder = true;
+      try {
+        await onLoadOlder(candlesRef.current[0].openTime);
+      } finally {
+        loadingOlder = false;
+      }
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
     const resize = () =>
       container.current &&
       chart.applyOptions({ width: container.current.clientWidth });
@@ -81,8 +86,49 @@ export default function MarketChart({ candles, signals, timeframe }: Props) {
     resize();
     return () => {
       observer.disconnect();
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
       chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      markerRef.current = null;
     };
+  }, [onLoadOlder]);
+
+  useEffect(() => {
+    const series = seriesRef.current;
+    const chart = chartRef.current;
+    const markerApi = markerRef.current;
+    if (!series || !chart || !markerApi || !candles.length) return;
+    const sorted = [...candles].sort((a, b) => a.openTime - b.openTime);
+    const data: CandlestickData<UTCTimestamp>[] = sorted.map((c) => ({
+      time: Math.floor(c.openTime / 1000) as UTCTimestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+    series.setData(data);
+    const step = steps[timeframe] ?? 3600000;
+    const candleTimes = new Set(sorted.map((c) => c.openTime));
+    const seen = new Set<number>();
+    const markers = signals
+      .map((s) => Math.floor(s.signalTime / step) * step)
+      .filter((t) => candleTimes.has(t) && !seen.has(t) && seen.add(t))
+      .map((t) => {
+        const signal = signals.find(
+          (s) => Math.floor(s.signalTime / step) * step === t,
+        );
+        return {
+          time: Math.floor(t / 1000) as UTCTimestamp,
+          position: signal?.action === 'BUY' ? 'belowBar' : 'aboveBar',
+          color: signal?.action === 'BUY' ? '#198754' : '#c43d54',
+          shape: signal?.action === 'BUY' ? 'arrowUp' : 'arrowDown',
+          text: signal?.action,
+        } as const;
+      });
+    markerApi.setMarkers(markers);
+    if (!chartRef.current?.timeScale().getVisibleLogicalRange())
+      chart.timeScale().fitContent();
   }, [candles, signals, timeframe]);
   return (
     <div

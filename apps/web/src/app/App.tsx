@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useBacktest, useLatestSignal, useSignalHistory } from './hooks';
 import type { BacktestError } from './api/backtest.api';
@@ -153,12 +153,40 @@ function ChartSection({
     signals: LiveSignalRecord[];
     loading: boolean;
     error: Error | null;
-  }>({ candles: [], signals: [], loading: false, error: null });
+    hasMoreOlder: boolean;
+    loadingOlder: boolean;
+  }>({
+    candles: [],
+    signals: [],
+    loading: false,
+    error: null,
+    hasMoreOlder: false,
+    loadingOlder: false,
+  });
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setState({ candles: [], signals: [], loading: true, error: null });
-    const rangeFrom = `${from}T00:00:00.000Z`;
+    setState({
+      candles: [],
+      signals: [],
+      loading: true,
+      error: null,
+      hasMoreOlder: true,
+      loadingOlder: false,
+    });
+    const step: Record<string, number> = {
+      '1m': 60000,
+      '1h': 3600000,
+      '4h': 14400000,
+      '1d': 86400000,
+    };
+    const periodFrom = Date.parse(`${from}T00:00:00.000Z`);
+    const periodTo = Date.parse(`${to}T00:00:00.000Z`);
+    const initialFrom = Math.max(
+      periodFrom,
+      periodTo - (step[timeframe] ?? 3600000) * 800,
+    );
+    const rangeFrom = new Date(initialFrom).toISOString();
     const rangeTo = `${to}T00:00:00.000Z`;
     Promise.all([
       getHistoricalCandles(symbol, timeframe, rangeFrom, rangeTo),
@@ -166,7 +194,15 @@ function ChartSection({
     ])
       .then(
         ([candles, signals]) =>
-          active && setState({ candles, signals, loading: false, error: null }),
+          active &&
+          setState({
+            candles,
+            signals,
+            loading: false,
+            error: null,
+            hasMoreOlder: initialFrom > periodFrom,
+            loadingOlder: false,
+          }),
       )
       .catch(
         (error) =>
@@ -179,12 +215,90 @@ function ChartSection({
               error instanceof Error
                 ? error
                 : new Error('Chart data request failed'),
+            hasMoreOlder: false,
+            loadingOlder: false,
           }),
       );
     return () => {
       active = false;
     };
   }, [open, symbol, timeframe, from, to]);
+  const loadOlder = useCallback(
+    async (oldest: number) => {
+      if (!state.hasMoreOlder || state.loadingOlder) return 0;
+      const step: Record<string, number> = {
+        '1m': 60000,
+        '1h': 3600000,
+        '4h': 14400000,
+        '1d': 86400000,
+      };
+      const size = (step[timeframe] ?? 3600000) * 800;
+      const periodFrom = Date.parse(`${from}T00:00:00.000Z`);
+      const olderFrom = Math.max(periodFrom, oldest - size);
+      if (olderFrom >= oldest) {
+        setState((s) => ({ ...s, hasMoreOlder: false }));
+        return 0;
+      }
+      setState((s) => ({ ...s, loadingOlder: true }));
+      try {
+        const [olderCandles, olderSignals] = await Promise.all([
+          getHistoricalCandles(
+            symbol,
+            timeframe,
+            new Date(olderFrom).toISOString(),
+            new Date(oldest).toISOString(),
+          ),
+          getSignalHistoryRange(
+            symbol,
+            timeframe,
+            new Date(olderFrom).toISOString(),
+            new Date(oldest).toISOString(),
+          ),
+        ]);
+        const candleMap = new Map(
+          [...olderCandles, ...state.candles].map((c) => [c.openTime, c]),
+        );
+        const signalMap = new Map(
+          [...olderSignals, ...state.signals].map((s) => [s.id, s]),
+        );
+        const merged = [...candleMap.values()].sort(
+          (a, b) => a.openTime - b.openTime,
+        );
+        setState((s) => ({
+          ...s,
+          candles: merged,
+          signals: [...signalMap.values()].sort(
+            (a, b) => a.signalTime - b.signalTime,
+          ),
+          loadingOlder: false,
+          hasMoreOlder: olderFrom > periodFrom,
+        }));
+        return olderCandles.filter(
+          (c) =>
+            !state.candles.some((existing) => existing.openTime === c.openTime),
+        ).length;
+      } catch (error) {
+        setState((s) => ({
+          ...s,
+          loadingOlder: false,
+          error:
+            error instanceof Error
+              ? error
+              : new Error('Unable to load older candles'),
+        }));
+        return 0;
+      }
+    },
+    [
+      from,
+      state.candles,
+      state.hasMoreOlder,
+      state.loadingOlder,
+      state.signals,
+      symbol,
+      timeframe,
+    ],
+  );
   return (
     <section className="card chart-card">
       <div>
@@ -200,7 +314,7 @@ function ChartSection({
       {open &&
         (state.loading ? (
           <div className="chart-placeholder">Loading chart data…</div>
-        ) : state.error ? (
+        ) : state.error && !state.candles.length ? (
           <div className="chart-placeholder error">{state.error.message}</div>
         ) : !state.candles.length ? (
           <div className="chart-placeholder">No candles for this period.</div>
@@ -208,10 +322,19 @@ function ChartSection({
           <Suspense
             fallback={<div className="chart-placeholder">Loading chart…</div>}
           >
+            {state.error && (
+              <div className="chart-retry error">
+                Older candles failed to load. Scroll left to retry.
+              </div>
+            )}
+            {state.loadingOlder && (
+              <div className="chart-retry muted">Loading older candles…</div>
+            )}
             <MarketChart
               candles={state.candles}
               signals={state.signals}
               timeframe={timeframe}
+              onLoadOlder={loadOlder}
             />
           </Suspense>
         ))}
