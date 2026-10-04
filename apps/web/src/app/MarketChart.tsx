@@ -71,8 +71,15 @@ export default function MarketChart({
       )
         return;
       loadingOlder = true;
+      const visible = chart.timeScale().getVisibleLogicalRange();
       try {
-        await onLoadOlder(candlesRef.current[0].openTime);
+        const inserted = await onLoadOlder(candlesRef.current[0].openTime);
+        if (inserted > 0 && visible) {
+          chart.timeScale().setVisibleLogicalRange({
+            from: visible.from + inserted,
+            to: visible.to + inserted,
+          });
+        }
       } finally {
         loadingOlder = false;
       }

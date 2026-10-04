@@ -22,7 +22,16 @@ export type BacktestResponse = {
     actualCandles: number;
     missingCandles: number;
   };
-  trades: unknown[];
+  trades: Array<{
+    sequence: number;
+    symbol: string;
+    timeframe: string;
+    entryTime: number;
+    entryPrice: number;
+    exitTime: number;
+    exitPrice: number;
+    exitReason: string;
+  }>;
   equityCurve: unknown[];
 };
 export type BacktestError = Error & { code?: string };
@@ -31,6 +40,7 @@ export function runBacktest(input: {
   timeframe: string;
   from: string;
   to: string;
+  feeRate: number;
 }) {
   return request<BacktestResponse>('/backtests', {
     method: 'POST',
@@ -39,7 +49,7 @@ export function runBacktest(input: {
       ...input,
       strategy: { type: 'SMA_CROSS', shortPeriod: 1, longPeriod: 238 },
       initialBalance: 10000,
-      feeRate: 0.001,
+      feeRate: input.feeRate,
       slippageRate: 0,
     }),
   });

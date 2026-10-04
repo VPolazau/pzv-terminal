@@ -1,4 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
 import { useBacktest, useLatestSignal, useSignalHistory } from './hooks';
 import type { BacktestError } from './api/backtest.api';
@@ -24,6 +32,8 @@ export default function App() {
   );
   const [to, setTo] = useState(dateText(now));
   const [chartOpen, setChartOpen] = useState(false);
+  const [feePercent, setFeePercent] = useState('0.10');
+  const feeRate = Number(feePercent) / 100;
   const latest = useLatestSignal(symbol, timeframe);
   const history = useSignalHistory(symbol, timeframe);
   const backtest = useBacktest({
@@ -31,7 +41,60 @@ export default function App() {
     timeframe,
     from: `${from}T00:00:00.000Z`,
     to: `${to}T00:00:00.000Z`,
+    feeRate:
+      Number.isFinite(feeRate) && feeRate >= 0 && feeRate <= 10
+        ? feeRate
+        : 0.001,
   });
+  const historyRows = useMemo(() => {
+    const live = (history.data ?? []).map((x) => ({
+      id: `LIVE:${x.id}`,
+      time: x.signalTime,
+      symbol: x.symbol,
+      tf: x.tf,
+      action: x.action,
+      price: x.price,
+      source: 'LIVE' as const,
+    }));
+    const historical = (backtest.data?.trades ?? []).flatMap((trade) => [
+      {
+        id: `HIST:${trade.sequence}:BUY`,
+        time: trade.entryTime,
+        symbol: trade.symbol,
+        tf: trade.timeframe,
+        action: 'BUY' as const,
+        price: trade.entryPrice,
+        source: 'HISTORICAL' as const,
+      },
+      {
+        id: `HIST:${trade.sequence}:SELL`,
+        time: trade.exitTime,
+        symbol: trade.symbol,
+        tf: trade.timeframe,
+        action: 'SELL' as const,
+        price: trade.exitPrice,
+        source: 'HISTORICAL' as const,
+      },
+    ]);
+    const seen = new Set<string>();
+    return [...historical, ...live]
+      .sort((a, b) => a.time - b.time)
+      .filter((row) => {
+        const key = `${row.symbol}|${row.tf}|${row.action}|${row.time}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [backtest.data, history.data]);
+  const latestSignal = useMemo(() => {
+    const live = history.data?.[0];
+    const historical = historyRows
+      .filter((x) => x.source === 'HISTORICAL')
+      .at(-1);
+    if (live && (!historical || live.signalTime >= historical.time))
+      return { ...live, source: 'LIVE' as const, time: live.signalTime };
+    return historical ?? null;
+  }, [history.data, historyRows]);
   return (
     <main className="shell">
       <header className="header">
@@ -73,23 +136,39 @@ export default function App() {
             onChange={(e) => setTo(e.target.value)}
           />
         </Field>
+        <Field label="Trading fee (%)">
+          <input
+            type="number"
+            min="0"
+            max="10"
+            step="0.01"
+            value={feePercent}
+            onChange={(e) => setFeePercent(e.target.value)}
+          />
+        </Field>
       </section>
       <section className="grid two">
-        <LatestCard {...latest} symbol={symbol} timeframe={timeframe} />
+        <LatestCard
+          data={latestSignal}
+          loading={latest.loading}
+          error={latest.error}
+          symbol={symbol}
+          timeframe={timeframe}
+        />
         <BacktestCard {...backtest} from={from} to={to} />
       </section>
       <section className="card">
         <Heading
           eyebrow="Live data"
           title="Signal history"
-          extra="Last 100 signals"
+          extra="Live + historical"
         />
         {history.loading ? (
           <Loading />
         ) : history.error ? (
           <ErrorState message={history.error.message} />
-        ) : !history.data?.length ? (
-          <Empty message="No live signals for this filter yet." />
+        ) : !historyRows.length ? (
+          <Empty message="No signals for this filter yet." />
         ) : (
           <div className="table-wrap">
             <table>
@@ -100,12 +179,13 @@ export default function App() {
                   <th>Timeframe</th>
                   <th>Action</th>
                   <th>Price</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
-                {history.data.map((x) => (
+                {historyRows.map((x) => (
                   <tr key={x.id}>
-                    <td>{formatDate(x.signalTime)}</td>
+                    <td>{formatDate(x.time)}</td>
                     <td>{x.symbol}</td>
                     <td>{x.tf}</td>
                     <td>
@@ -114,6 +194,9 @@ export default function App() {
                       </span>
                     </td>
                     <td>{formatPrice(x.price)}</td>
+                    <td>
+                      <span className="pill source">{x.source}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -163,6 +246,8 @@ function ChartSection({
     hasMoreOlder: false,
     loadingOlder: false,
   });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -225,7 +310,8 @@ function ChartSection({
   }, [open, symbol, timeframe, from, to]);
   const loadOlder = useCallback(
     async (oldest: number) => {
-      if (!state.hasMoreOlder || state.loadingOlder) return 0;
+      const current = stateRef.current;
+      if (!current.hasMoreOlder || current.loadingOlder) return 0;
       const step: Record<string, number> = {
         '1m': 60000,
         '1h': 3600000,
@@ -256,10 +342,10 @@ function ChartSection({
           ),
         ]);
         const candleMap = new Map(
-          [...olderCandles, ...state.candles].map((c) => [c.openTime, c]),
+          [...olderCandles, ...current.candles].map((c) => [c.openTime, c]),
         );
         const signalMap = new Map(
-          [...olderSignals, ...state.signals].map((s) => [s.id, s]),
+          [...olderSignals, ...current.signals].map((s) => [s.id, s]),
         );
         const merged = [...candleMap.values()].sort(
           (a, b) => a.openTime - b.openTime,
@@ -275,7 +361,9 @@ function ChartSection({
         }));
         return olderCandles.filter(
           (c) =>
-            !state.candles.some((existing) => existing.openTime === c.openTime),
+            !current.candles.some(
+              (existing) => existing.openTime === c.openTime,
+            ),
         ).length;
       } catch (error) {
         setState((s) => ({
@@ -289,15 +377,7 @@ function ChartSection({
         return 0;
       }
     },
-    [
-      from,
-      state.candles,
-      state.hasMoreOlder,
-      state.loadingOlder,
-      state.signals,
-      symbol,
-      timeframe,
-    ],
+    [from, symbol, timeframe],
   );
   return (
     <section className="card chart-card">
@@ -348,10 +428,22 @@ function LatestCard({
   error,
   symbol,
   timeframe,
-}: ReturnType<typeof useLatestSignal> & { symbol: string; timeframe: string }) {
+}: {
+  data: {
+    action: 'BUY' | 'SELL';
+    price: number;
+    signalTime?: number;
+    time?: number;
+    source: 'LIVE' | 'HISTORICAL';
+  } | null;
+  loading: boolean;
+  error: Error | null;
+  symbol: string;
+  timeframe: string;
+}) {
   return (
     <section className="card">
-      <Heading eyebrow="Current state" title="Latest signal" />
+      <Heading eyebrow="Signal overview" title="Latest signal" />
       {loading ? (
         <Loading />
       ) : error ? (
@@ -367,7 +459,10 @@ function LatestCard({
             {symbol} · {timeframe}
           </strong>
           <span>{formatPrice(data.price)}</span>
-          <span className="muted">{formatDate(data.signalTime)}</span>
+          <span className="pill source">{data.source}</span>
+          <span className="muted">
+            {formatDate(data.signalTime ?? data.time ?? 0)}
+          </span>
         </div>
       )}
     </section>

@@ -40,8 +40,9 @@ export const useBacktest = (i: {
   timeframe: string;
   from: string;
   to: string;
+  feeRate: number;
 }) =>
   useAsync<BacktestResponse>(
     () => runBacktest(i),
-    [i.symbol, i.timeframe, i.from, i.to],
+    [i.symbol, i.timeframe, i.from, i.to, String(i.feeRate)],
   );
