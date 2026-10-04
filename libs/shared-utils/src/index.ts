@@ -6,3 +6,6 @@ export * from './lib/signals/sma-cross';
 export * from './lib/telegram/send-telegram';
 export * from './lib/exchange/binance';
 export * from './lib/signals/live-sma';
+export * from './lib/backtest/strategy';
+export * from './lib/backtest/sma-cross.strategy';
+export * from './lib/backtest/engine';
