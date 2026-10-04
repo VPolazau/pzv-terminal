@@ -19,6 +19,8 @@ export function parseHistoryRange(params: {
   if (!symbol) throw new BadRequestException('symbol is required');
   if (!TIMEFRAMES.has(tf as Timeframe))
     throw new BadRequestException('Unsupported timeframe');
+  if (from < 0 || to < 0)
+    throw new BadRequestException('Dates must not be before Unix epoch');
   if (from >= to) throw new BadRequestException('from must be earlier than to');
 
   return { symbol, tf: tf as Timeframe, from, to };

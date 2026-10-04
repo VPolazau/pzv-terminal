@@ -9,6 +9,8 @@ import { SignalsController } from '../signals/signals.controller';
 import { LastSignalsController } from '../signals/last-signals.controller';
 import { SubscriptionsController } from '../subscriptions/subscriptions.controller';
 import { RedisModule } from '../redis/redis.module';
+import { HistoricalCandleRepository } from '../market/historical-candle.repository';
+import { HistoricalCandleService } from '../market/historical-candle.service';
 
 @Module({
   imports: [RedisModule],
@@ -22,6 +24,13 @@ import { RedisModule } from '../redis/redis.module';
     LastSignalsController,
     SubscriptionsController,
   ],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: HistoricalCandleRepository,
+      useFactory: () => new HistoricalCandleRepository(),
+    },
+    HistoricalCandleService,
+  ],
 })
 export class AppModule {}

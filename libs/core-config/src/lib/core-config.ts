@@ -13,6 +13,7 @@ const EnvSchema = z.object({
     .default('info'),
 
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+  SQLITE_PATH: z.string().min(1).default('./data/market-history.sqlite'),
   RUNNER_MODE: z.enum(['single', 'subs']).default('single'),
   MOCK_TIME_SCALE: z.coerce.number().positive().default(1),
 
