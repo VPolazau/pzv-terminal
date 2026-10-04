@@ -16,6 +16,7 @@ import {
   type LiveSignalRecord,
 } from './api/signals.api';
 import type { SignalEvent } from './signal-events';
+import { selectLatestEvent } from './latest-event';
 
 const MarketChart = lazy(() => import('./MarketChart'));
 
@@ -43,6 +44,12 @@ export default function App() {
     null,
   );
   const [feePercent, setFeePercent] = useState('0.10');
+  const [capital, setCapital] = useState('100');
+  const initialBalance = Number(capital);
+  const validCapital =
+    Number.isFinite(initialBalance) &&
+    initialBalance > 0 &&
+    initialBalance <= 100_000_000;
   const feeRate = Number(feePercent) / 100;
   const latest = useLatestSignal(symbol, timeframe);
   const history = useSignalHistory(symbol, timeframe);
@@ -55,6 +62,7 @@ export default function App() {
       Number.isFinite(feeRate) && feeRate >= 0 && feeRate <= 10
         ? feeRate
         : 0.001,
+    initialBalance: validCapital ? initialBalance : null,
   });
   const historyRows = useMemo<SignalEvent[]>(() => {
     const live = (history.data ?? []).map((x) => ({
@@ -120,15 +128,10 @@ export default function App() {
         return true;
       });
   }, [backtest.data, history.data]);
-  const latestSignal = useMemo(() => {
-    const live = history.data?.[0];
-    const historical = historyRows
-      .filter((x) => x.source === 'HISTORICAL')
-      .at(-1);
-    if (live && (!historical || live.signalTime >= historical.time))
-      return { ...live, source: 'LIVE' as const, time: live.signalTime };
-    return historical ?? null;
-  }, [history.data, historyRows]);
+  const latestSignal = useMemo(
+    () => selectLatestEvent(historyRows),
+    [historyRows],
+  );
   return (
     <main className="shell">
       <header className="header">
@@ -178,6 +181,16 @@ export default function App() {
             step="0.01"
             value={feePercent}
             onChange={(e) => setFeePercent(e.target.value)}
+          />
+        </Field>
+        <Field label="Initial capital ($)">
+          <input
+            type="number"
+            min="0"
+            max="100000000"
+            step="0.01"
+            value={capital}
+            onChange={(e) => setCapital(e.target.value)}
           />
         </Field>
       </section>
@@ -604,13 +617,15 @@ function BacktestCard({
             {from} → {to}
           </p>
           <div className="metrics">
+            {metric('Initial capital', money(data.metrics.initialBalance))}
+            {metric('Final equity', money(data.metrics.finalEquity))}
             {metric('Trades', data.metrics.totalTrades)}
             {metric('Win rate', percent(data.metrics.winRate))}
             {metric('Return', percent(data.metrics.returnPct))}
-            {metric('Net profit', number(data.metrics.netProfit))}
+            {metric('Net profit', money(data.metrics.netProfit))}
             {metric('Profit factor', number(data.metrics.profitFactor))}
             {metric('Max drawdown', percent(data.metrics.maxDrawdownPct))}
-            {metric('Fees', number(data.metrics.totalFees))}
+            {metric('Fees', money(data.metrics.totalFees))}
           </div>
           <div className="quality">
             Data quality:{' '}
@@ -662,6 +677,8 @@ const formatDate = (v: number) => new Date(v).toLocaleString();
 const formatPrice = (v: number) =>
   v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 const number = (v: number | null) => (v == null ? '—' : v.toFixed(2));
+const money = (v: number | null) =>
+  v == null ? '—' : `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`;
 const percent = (v: number | null) => (v == null ? '—' : `${v.toFixed(2)}%`);
 const Loading = () => <div className="state">Loading…</div>;
 const Empty = ({ message }: { message: string }) => (

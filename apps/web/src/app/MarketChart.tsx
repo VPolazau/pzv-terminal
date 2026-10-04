@@ -280,6 +280,7 @@ export default function MarketChart({
         } as const;
       });
     markerApi.setMarkers(markers);
+    requestAnimationFrame(() => markerApi.setMarkers(markers));
     if (selectedSignal) {
       const stepMs = steps[timeframe] ?? 3600000;
       const target = Math.floor(selectedSignal.timestamp / stepMs) * stepMs;

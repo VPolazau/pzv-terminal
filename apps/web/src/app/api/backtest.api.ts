@@ -8,6 +8,8 @@ export type BacktestResponse = {
     strategyId: string;
   };
   metrics: {
+    initialBalance: number;
+    finalEquity: number;
     totalTrades: number;
     winRate: number | null;
     returnPct: number;
@@ -45,6 +47,7 @@ export function runBacktest(input: {
   from: string;
   to: string;
   feeRate: number;
+  initialBalance: number;
 }) {
   return request<BacktestResponse>('/backtests', {
     method: 'POST',
@@ -52,7 +55,7 @@ export function runBacktest(input: {
     body: JSON.stringify({
       ...input,
       strategy: { type: 'SMA_CROSS', shortPeriod: 1, longPeriod: 238 },
-      initialBalance: 10000,
+      initialBalance: input.initialBalance,
       feeRate: input.feeRate,
       slippageRate: 0,
     }),

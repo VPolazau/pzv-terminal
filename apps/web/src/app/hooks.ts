@@ -5,7 +5,7 @@ import {
   type LiveSignalRecord,
 } from './api/signals.api';
 import { runBacktest, type BacktestResponse } from './api/backtest.api';
-function useAsync<T>(load: () => Promise<T>, deps: string[]) {
+function useAsync<T>(load: () => Promise<T>, deps: string[], enabled = true) {
   const [state, setState] = useState<{
     data: T | null;
     loading: boolean;
@@ -14,6 +14,12 @@ function useAsync<T>(load: () => Promise<T>, deps: string[]) {
   useEffect(() => {
     let active = true;
     setState({ data: null, loading: true, error: null });
+    if (!enabled) {
+      setState({ data: null, loading: false, error: null });
+      return () => {
+        active = false;
+      };
+    }
     load()
       .then((data) => active && setState({ data, loading: false, error: null }))
       .catch(
@@ -41,8 +47,17 @@ export const useBacktest = (i: {
   from: string;
   to: string;
   feeRate: number;
+  initialBalance: number | null;
 }) =>
   useAsync<BacktestResponse>(
     () => runBacktest(i),
-    [i.symbol, i.timeframe, i.from, i.to, String(i.feeRate)],
+    [
+      i.symbol,
+      i.timeframe,
+      i.from,
+      i.to,
+      String(i.feeRate),
+      String(i.initialBalance),
+    ],
+    i.initialBalance !== null,
   );
