@@ -30,6 +30,10 @@ export type BacktestResponse = {
     entryPrice: number;
     exitTime: number;
     exitPrice: number;
+    entryFee: number;
+    exitFee: number;
+    quantity: number;
+    netPnl: number;
     exitReason: string;
   }>;
   equityCurve: unknown[];

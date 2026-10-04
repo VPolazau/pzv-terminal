@@ -54,6 +54,8 @@ export default function App() {
       tf: x.tf,
       action: x.action,
       price: x.price,
+      fee: null,
+      profit: null,
       source: 'LIVE' as const,
     }));
     const historical = (backtest.data?.trades ?? []).flatMap((trade) => [
@@ -64,6 +66,8 @@ export default function App() {
         tf: trade.timeframe,
         action: 'BUY' as const,
         price: trade.entryPrice,
+        fee: trade.entryFee,
+        profit: null,
         source: 'HISTORICAL' as const,
       },
       {
@@ -73,6 +77,8 @@ export default function App() {
         tf: trade.timeframe,
         action: 'SELL' as const,
         price: trade.exitPrice,
+        fee: trade.exitFee,
+        profit: trade.netPnl,
         source: 'HISTORICAL' as const,
       },
     ]);
@@ -179,6 +185,8 @@ export default function App() {
                   <th>Timeframe</th>
                   <th>Action</th>
                   <th>Price</th>
+                  <th>Fee</th>
+                  <th>Profit</th>
                   <th>Source</th>
                 </tr>
               </thead>
@@ -194,6 +202,8 @@ export default function App() {
                       </span>
                     </td>
                     <td>{formatPrice(x.price)}</td>
+                    <td>{formatPrice(x.fee)}</td>
+                    <td>{x.profit == null ? '—' : formatPrice(x.profit)}</td>
                     <td>
                       <span className="pill source">{x.source}</span>
                     </td>

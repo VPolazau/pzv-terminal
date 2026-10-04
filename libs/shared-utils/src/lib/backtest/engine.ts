@@ -22,6 +22,8 @@ export type BacktestTrade = {
   exitTime: number;
   exitPrice: number;
   quantity: number;
+  entryFee: number;
+  exitFee: number;
   grossPnl: number;
   fees: number;
   netPnl: number;
@@ -197,6 +199,8 @@ function closePosition(
     exitTime,
     exitPrice,
     quantity: position.quantity,
+    entryFee: position.entryFee,
+    exitFee,
     grossPnl,
     fees,
     netPnl,
