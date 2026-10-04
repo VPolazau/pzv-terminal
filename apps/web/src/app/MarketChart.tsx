@@ -10,12 +10,15 @@ import {
 } from 'lightweight-charts';
 import type { Candle } from './api/market.api';
 import type { LiveSignalRecord } from './api/signals.api';
+import type { SignalEvent } from './signal-events';
 
 type Props = {
   candles: Candle[];
   signals: LiveSignalRecord[];
   timeframe: string;
   onLoadOlder: (oldest: number) => Promise<number>;
+  events: SignalEvent[];
+  selectedSignal: SignalEvent | null;
 };
 const steps: Record<string, number> = {
   '1m': 60000,
@@ -29,6 +32,8 @@ export default function MarketChart({
   signals,
   timeframe,
   onLoadOlder,
+  events,
+  selectedSignal,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -135,25 +140,40 @@ export default function MarketChart({
     const step = steps[timeframe] ?? 3600000;
     const candleTimes = new Set(sorted.map((c) => c.openTime));
     const seen = new Set<number>();
-    const markers = signals
-      .map((s) => Math.floor(s.signalTime / step) * step)
+    const unified = events.length
+      ? events
+      : signals.map((s) => ({
+          id: s.id,
+          symbol: s.symbol,
+          timeframe: s.tf,
+          action: s.action,
+          timestamp: s.signalTime,
+          time: s.signalTime,
+          price: s.price,
+          source: 'LIVE' as const,
+          fee: null,
+          profit: null,
+        }));
+    const markers = unified
+      .map((s) => Math.floor(s.timestamp / step) * step)
       .filter((t) => candleTimes.has(t) && !seen.has(t) && seen.add(t))
       .map((t) => {
-        const signal = signals.find(
-          (s) => Math.floor(s.signalTime / step) * step === t,
+        const signal = unified.find(
+          (s) => Math.floor(s.timestamp / step) * step === t,
         );
         return {
           time: Math.floor(t / 1000) as UTCTimestamp,
           position: signal?.action === 'BUY' ? 'belowBar' : 'aboveBar',
           color: signal?.action === 'BUY' ? '#198754' : '#c43d54',
           shape: signal?.action === 'BUY' ? 'arrowUp' : 'arrowDown',
-          text: signal?.action,
+          text: `${signal?.action ?? ''} · ${signal?.source === 'HISTORICAL' ? 'H' : 'L'}`,
+          size: signal?.id === selectedSignal?.id ? 2 : 1,
         } as const;
       });
     markerApi.setMarkers(markers);
     if (!chartRef.current?.timeScale().getVisibleLogicalRange())
       chart.timeScale().fitContent();
-  }, [candles, signals, timeframe]);
+  }, [candles, signals, events, selectedSignal, timeframe]);
   return (
     <div
       ref={container}

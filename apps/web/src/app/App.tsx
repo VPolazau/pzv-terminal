@@ -15,6 +15,7 @@ import {
   getSignalHistoryRange,
   type LiveSignalRecord,
 } from './api/signals.api';
+import type { SignalEvent } from './signal-events';
 
 const MarketChart = lazy(() => import('./MarketChart'));
 
@@ -22,6 +23,12 @@ const symbols = ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'TAOUSDT'];
 const timeframes = ['4h', '1d'];
 const day = 86400000;
 const dateText = (value: Date) => value.toISOString().slice(0, 10);
+const steps: Record<string, number> = {
+  '1m': 60000,
+  '1h': 3600000,
+  '4h': 14400000,
+  '1d': 86400000,
+};
 
 export default function App() {
   const now = new Date();
@@ -32,6 +39,9 @@ export default function App() {
   );
   const [to, setTo] = useState(dateText(now));
   const [chartOpen, setChartOpen] = useState(false);
+  const [selectedSignal, setSelectedSignal] = useState<SignalEvent | null>(
+    null,
+  );
   const [feePercent, setFeePercent] = useState('0.10');
   const feeRate = Number(feePercent) / 100;
   const latest = useLatestSignal(symbol, timeframe);
@@ -46,10 +56,12 @@ export default function App() {
         ? feeRate
         : 0.001,
   });
-  const historyRows = useMemo(() => {
+  const historyRows = useMemo<SignalEvent[]>(() => {
     const live = (history.data ?? []).map((x) => ({
       id: `LIVE:${x.id}`,
       time: x.signalTime,
+      timestamp: x.signalTime,
+      timeframe: x.tf,
       symbol: x.symbol,
       tf: x.tf,
       action: x.action,
@@ -62,6 +74,8 @@ export default function App() {
       {
         id: `HIST:${trade.sequence}:BUY`,
         time: trade.entryTime,
+        timestamp: trade.entryTime,
+        timeframe: trade.timeframe,
         symbol: trade.symbol,
         tf: trade.timeframe,
         action: 'BUY' as const,
@@ -73,6 +87,8 @@ export default function App() {
       {
         id: `HIST:${trade.sequence}:SELL`,
         time: trade.exitTime,
+        timestamp: trade.exitTime,
+        timeframe: trade.timeframe,
         symbol: trade.symbol,
         tf: trade.timeframe,
         action: 'SELL' as const,
@@ -86,7 +102,7 @@ export default function App() {
     return [...historical, ...live]
       .sort((a, b) => a.time - b.time)
       .filter((row) => {
-        const key = `${row.symbol}|${row.tf}|${row.action}|${row.time}`;
+        const key = `${row.symbol}|${row.timeframe}|${row.action}|${row.time}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -192,10 +208,27 @@ export default function App() {
               </thead>
               <tbody>
                 {historyRows.map((x) => (
-                  <tr key={x.id}>
+                  <tr
+                    key={x.id}
+                    className={
+                      selectedSignal?.id === x.id ? 'selected-row' : undefined
+                    }
+                    onClick={() => {
+                      setSelectedSignal(x);
+                      setChartOpen(true);
+                    }}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedSignal(x);
+                        setChartOpen(true);
+                      }
+                    }}
+                  >
                     <td>{formatDate(x.time)}</td>
                     <td>{x.symbol}</td>
-                    <td>{x.tf}</td>
+                    <td>{x.timeframe}</td>
                     <td>
                       <span className={`pill ${x.action.toLowerCase()}`}>
                         {x.action}
@@ -221,6 +254,8 @@ export default function App() {
         timeframe={timeframe}
         from={from}
         to={to}
+        events={historyRows}
+        selectedSignal={selectedSignal}
       />
     </main>
   );
@@ -233,6 +268,8 @@ function ChartSection({
   timeframe,
   from,
   to,
+  events,
+  selectedSignal,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -240,6 +277,8 @@ function ChartSection({
   timeframe: string;
   from: string;
   to: string;
+  events: SignalEvent[];
+  selectedSignal: SignalEvent | null;
 }) {
   const [state, setState] = useState<{
     candles: Candle[];
@@ -318,6 +357,50 @@ function ChartSection({
       active = false;
     };
   }, [open, symbol, timeframe, from, to]);
+  useEffect(() => {
+    if (
+      !open ||
+      !selectedSignal ||
+      selectedSignal.symbol !== symbol ||
+      selectedSignal.timeframe !== timeframe ||
+      state.candles.some(
+        (c) =>
+          c.openTime ===
+          Math.floor(selectedSignal.timestamp / (steps[timeframe] ?? 3600000)) *
+            (steps[timeframe] ?? 3600000),
+      )
+    )
+      return;
+    const step = steps[timeframe] ?? 3600000;
+    const center = Math.floor(selectedSignal.timestamp / step) * step;
+    const rangeFrom = new Date(center - step * 150).toISOString();
+    const rangeTo = new Date(center + step * 150).toISOString();
+    Promise.all([
+      getHistoricalCandles(symbol, timeframe, rangeFrom, rangeTo),
+      getSignalHistoryRange(symbol, timeframe, rangeFrom, rangeTo),
+    ])
+      .then(([candles, signals]) =>
+        setState((s) => ({
+          ...s,
+          candles: [
+            ...new Map(
+              [...s.candles, ...candles].map((c) => [c.openTime, c]),
+            ).values(),
+          ].sort((a, b) => a.openTime - b.openTime),
+          signals: [
+            ...new Map(
+              [...s.signals, ...signals].map((x) => [x.id, x]),
+            ).values(),
+          ].sort((a, b) => a.signalTime - b.signalTime),
+        })),
+      )
+      .catch(() =>
+        setState((s) => ({
+          ...s,
+          error: new Error('Unable to load selected signal candle'),
+        })),
+      );
+  }, [open, selectedSignal, symbol, timeframe, state.candles]);
   const loadOlder = useCallback(
     async (oldest: number) => {
       const current = stateRef.current;
@@ -425,6 +508,8 @@ function ChartSection({
               signals={state.signals}
               timeframe={timeframe}
               onLoadOlder={loadOlder}
+              events={events}
+              selectedSignal={selectedSignal}
             />
           </Suspense>
         ))}

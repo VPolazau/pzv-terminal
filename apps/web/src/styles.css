@@ -199,6 +199,13 @@ table {
   border-collapse: collapse;
   min-width: 580px;
 }
+tbody tr {
+  cursor: pointer;
+}
+tbody tr:hover,
+tbody tr.selected-row {
+  background: #f0f6ff;
+}
 th,
 td {
   text-align: left;
