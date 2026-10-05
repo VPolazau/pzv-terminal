@@ -42,10 +42,9 @@
       }
     },
     "test": {
-      "executor": "nx:run-commands",
+      "executor": "@nx/jest:jest",
       "options": {
-        "command": "node -e \"process.exit(0)\"",
-        "cwd": "apps/web"
+        "jestConfig": "apps/web/jest.config.cts"
       }
     }
   }

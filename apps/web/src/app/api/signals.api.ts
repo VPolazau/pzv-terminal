@@ -23,6 +23,7 @@ export function getSignalHistoryRange(
   tf: string,
   from: string,
   to: string,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
     symbol,
@@ -32,5 +33,7 @@ export function getSignalHistoryRange(
     limit: '500',
     order: 'ASC',
   });
-  return request<LiveSignalRecord[]>(`/signals/history?${params.toString()}`);
+  return request<LiveSignalRecord[]>(`/signals/history?${params.toString()}`, {
+    signal,
+  });
 }

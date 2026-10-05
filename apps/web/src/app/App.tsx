@@ -1,35 +1,16 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useBacktest, useLatestSignal, useSignalHistory } from './hooks';
 import type { BacktestError } from './api/backtest.api';
-import { getHistoricalCandles, type Candle } from './api/market.api';
-import {
-  getSignalHistoryRange,
-  type LiveSignalRecord,
-} from './api/signals.api';
 import type { SignalEvent } from './signal-events';
 import { selectLatestEvent } from './latest-event';
 
-const MarketChart = lazy(() => import('./MarketChart'));
+import ChartSection from './ChartSection';
 
 const symbols = ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'TAOUSDT'];
 const timeframes = ['4h', '1d'];
 const day = 86400000;
 const dateText = (value: Date) => value.toISOString().slice(0, 10);
-const steps: Record<string, number> = {
-  '1m': 60000,
-  '1h': 3600000,
-  '4h': 14400000,
-  '1d': 86400000,
-};
 
 export default function App() {
   const now = new Date();
@@ -40,6 +21,7 @@ export default function App() {
   );
   const [to, setTo] = useState(dateText(now));
   const [chartOpen, setChartOpen] = useState(false);
+  const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectedSignal, setSelectedSignal] = useState<SignalEvent | null>(
     null,
   );
@@ -132,6 +114,21 @@ export default function App() {
     () => selectLatestEvent(historyRows),
     [historyRows],
   );
+  // Resolve current economics without refocusing when a backtest result refreshes.
+  const chartSelection = selectedSignal
+    ? (historyRows.find(
+        (event) =>
+          event.id === selectedSignal.id &&
+          event.timestamp === selectedSignal.timestamp &&
+          event.symbol === symbol &&
+          event.timeframe === timeframe,
+      ) ?? null)
+    : null;
+  const selectSignal = (event: SignalEvent) => {
+    setSelectedSignal(event);
+    setSelectionRequest((value) => value + 1);
+    setChartOpen(true);
+  };
   return (
     <main className="shell">
       <header className="header">
@@ -236,18 +233,16 @@ export default function App() {
                   <tr
                     key={x.id}
                     className={
-                      selectedSignal?.id === x.id ? 'selected-row' : undefined
+                      chartSelection?.id === x.id ? 'selected-row' : undefined
                     }
                     onClick={() => {
-                      setSelectedSignal(x);
-                      setChartOpen(true);
+                      selectSignal(x);
                     }}
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        setSelectedSignal(x);
-                        setChartOpen(true);
+                        selectSignal(x);
                       }
                     }}
                   >
@@ -280,265 +275,10 @@ export default function App() {
         from={from}
         to={to}
         events={historyRows}
-        selectedSignal={selectedSignal}
+        selectedSignal={chartSelection}
+        selectionRequest={selectionRequest}
       />
     </main>
-  );
-}
-
-function ChartSection({
-  open,
-  onToggle,
-  symbol,
-  timeframe,
-  from,
-  to,
-  events,
-  selectedSignal,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  symbol: string;
-  timeframe: string;
-  from: string;
-  to: string;
-  events: SignalEvent[];
-  selectedSignal: SignalEvent | null;
-}) {
-  const [state, setState] = useState<{
-    candles: Candle[];
-    signals: LiveSignalRecord[];
-    loading: boolean;
-    error: Error | null;
-    hasMoreOlder: boolean;
-    loadingOlder: boolean;
-  }>({
-    candles: [],
-    signals: [],
-    loading: false,
-    error: null,
-    hasMoreOlder: false,
-    loadingOlder: false,
-  });
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setState({
-      candles: [],
-      signals: [],
-      loading: true,
-      error: null,
-      hasMoreOlder: true,
-      loadingOlder: false,
-    });
-    const step: Record<string, number> = {
-      '1m': 60000,
-      '1h': 3600000,
-      '4h': 14400000,
-      '1d': 86400000,
-    };
-    const periodFrom = Date.parse(`${from}T00:00:00.000Z`);
-    const periodTo = Date.parse(`${to}T00:00:00.000Z`);
-    const initialFrom = Math.max(
-      periodFrom,
-      periodTo - (step[timeframe] ?? 3600000) * 800,
-    );
-    const rangeFrom = new Date(initialFrom).toISOString();
-    const rangeTo = `${to}T00:00:00.000Z`;
-    Promise.all([
-      getHistoricalCandles(symbol, timeframe, rangeFrom, rangeTo),
-      getSignalHistoryRange(symbol, timeframe, rangeFrom, rangeTo),
-    ])
-      .then(
-        ([candles, signals]) =>
-          active &&
-          setState({
-            candles,
-            signals,
-            loading: false,
-            error: null,
-            hasMoreOlder: initialFrom > periodFrom,
-            loadingOlder: false,
-          }),
-      )
-      .catch(
-        (error) =>
-          active &&
-          setState({
-            candles: [],
-            signals: [],
-            loading: false,
-            error:
-              error instanceof Error
-                ? error
-                : new Error('Chart data request failed'),
-            hasMoreOlder: false,
-            loadingOlder: false,
-          }),
-      );
-    return () => {
-      active = false;
-    };
-  }, [open, symbol, timeframe, from, to]);
-  useEffect(() => {
-    if (
-      !open ||
-      !selectedSignal ||
-      selectedSignal.symbol !== symbol ||
-      selectedSignal.timeframe !== timeframe ||
-      state.candles.some(
-        (c) =>
-          c.openTime ===
-          Math.floor(selectedSignal.timestamp / (steps[timeframe] ?? 3600000)) *
-            (steps[timeframe] ?? 3600000),
-      )
-    )
-      return;
-    const step = steps[timeframe] ?? 3600000;
-    const center = Math.floor(selectedSignal.timestamp / step) * step;
-    const rangeFrom = new Date(center - step * 150).toISOString();
-    const rangeTo = new Date(center + step * 150).toISOString();
-    Promise.all([
-      getHistoricalCandles(symbol, timeframe, rangeFrom, rangeTo),
-      getSignalHistoryRange(symbol, timeframe, rangeFrom, rangeTo),
-    ])
-      .then(([candles, signals]) =>
-        setState((s) => ({
-          ...s,
-          candles: [
-            ...new Map(
-              [...s.candles, ...candles].map((c) => [c.openTime, c]),
-            ).values(),
-          ].sort((a, b) => a.openTime - b.openTime),
-          signals: [
-            ...new Map(
-              [...s.signals, ...signals].map((x) => [x.id, x]),
-            ).values(),
-          ].sort((a, b) => a.signalTime - b.signalTime),
-        })),
-      )
-      .catch(() =>
-        setState((s) => ({
-          ...s,
-          error: new Error('Unable to load selected signal candle'),
-        })),
-      );
-  }, [open, selectedSignal, symbol, timeframe, state.candles]);
-  const loadOlder = useCallback(
-    async (oldest: number) => {
-      const current = stateRef.current;
-      if (!current.hasMoreOlder || current.loadingOlder) return 0;
-      const step: Record<string, number> = {
-        '1m': 60000,
-        '1h': 3600000,
-        '4h': 14400000,
-        '1d': 86400000,
-      };
-      const size = (step[timeframe] ?? 3600000) * 800;
-      const periodFrom = Date.parse(`${from}T00:00:00.000Z`);
-      const olderFrom = Math.max(periodFrom, oldest - size);
-      if (olderFrom >= oldest) {
-        setState((s) => ({ ...s, hasMoreOlder: false }));
-        return 0;
-      }
-      setState((s) => ({ ...s, loadingOlder: true }));
-      try {
-        const [olderCandles, olderSignals] = await Promise.all([
-          getHistoricalCandles(
-            symbol,
-            timeframe,
-            new Date(olderFrom).toISOString(),
-            new Date(oldest).toISOString(),
-          ),
-          getSignalHistoryRange(
-            symbol,
-            timeframe,
-            new Date(olderFrom).toISOString(),
-            new Date(oldest).toISOString(),
-          ),
-        ]);
-        const candleMap = new Map(
-          [...olderCandles, ...current.candles].map((c) => [c.openTime, c]),
-        );
-        const signalMap = new Map(
-          [...olderSignals, ...current.signals].map((s) => [s.id, s]),
-        );
-        const merged = [...candleMap.values()].sort(
-          (a, b) => a.openTime - b.openTime,
-        );
-        setState((s) => ({
-          ...s,
-          candles: merged,
-          signals: [...signalMap.values()].sort(
-            (a, b) => a.signalTime - b.signalTime,
-          ),
-          loadingOlder: false,
-          hasMoreOlder: olderFrom > periodFrom,
-        }));
-        return olderCandles.filter(
-          (c) =>
-            !current.candles.some(
-              (existing) => existing.openTime === c.openTime,
-            ),
-        ).length;
-      } catch (error) {
-        setState((s) => ({
-          ...s,
-          loadingOlder: false,
-          error:
-            error instanceof Error
-              ? error
-              : new Error('Unable to load older candles'),
-        }));
-        return 0;
-      }
-    },
-    [from, symbol, timeframe],
-  );
-  return (
-    <section className="card chart-card">
-      <div>
-        <span className="eyebrow">Market data</span>
-        <h2>Market chart</h2>
-        <p className="muted">
-          Historical candles and real live signal markers.
-        </p>
-      </div>
-      <button className="secondary" onClick={onToggle}>
-        {open ? 'Close chart' : 'Open chart'}
-      </button>
-      {open &&
-        (state.loading ? (
-          <div className="chart-placeholder">Loading chart data…</div>
-        ) : state.error && !state.candles.length ? (
-          <div className="chart-placeholder error">{state.error.message}</div>
-        ) : !state.candles.length ? (
-          <div className="chart-placeholder">No candles for this period.</div>
-        ) : (
-          <Suspense
-            fallback={<div className="chart-placeholder">Loading chart…</div>}
-          >
-            {state.error && (
-              <div className="chart-retry error">
-                Older candles failed to load. Scroll left to retry.
-              </div>
-            )}
-            {state.loadingOlder && (
-              <div className="chart-retry muted">Loading older candles…</div>
-            )}
-            <MarketChart
-              candles={state.candles}
-              signals={state.signals}
-              timeframe={timeframe}
-              onLoadOlder={loadOlder}
-              events={events}
-              selectedSignal={selectedSignal}
-            />
-          </Suspense>
-        ))}
-    </section>
   );
 }
 
@@ -674,8 +414,8 @@ const metric = (label: string, value: string | number) => (
   </div>
 );
 const formatDate = (v: number) => new Date(v).toLocaleString();
-const formatPrice = (v: number) =>
-  v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+const formatPrice = (v: number | null) =>
+  v == null ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 const number = (v: number | null) => (v == null ? '—' : v.toFixed(2));
 const money = (v: number | null) =>
   v == null ? '—' : `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`;

@@ -16,7 +16,10 @@ export function getHistoricalCandles(
   timeframe: string,
   from: string,
   to: string,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({ symbol, tf: timeframe, from, to });
-  return request<Candle[]>(`/market/candles/history?${params.toString()}`);
+  return request<Candle[]>(`/market/candles/history?${params.toString()}`, {
+    signal,
+  });
 }

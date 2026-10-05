@@ -260,6 +260,13 @@ th {
   min-height: 420px;
   width: 100%;
 }
+.chart-session {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.chart-status {
+  min-height: 2.75rem;
+}
 @media (max-width: 800px) {
   .shell {
     height: auto;
